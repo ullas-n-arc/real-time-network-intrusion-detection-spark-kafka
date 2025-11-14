@@ -22,3 +22,69 @@
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 replay_pid*
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.env
+.env
+venv/
+.env/
+*.sqlite3
+
+# Java
+*.class
+*.jar
+*.war
+*.ear
+*.iml
+target/
+build/
+out/
+
+# IntelliJ / IDEA
+.idea/
+*.iml
+
+# VS Code
+.vscode/
+
+# Logs
+*.log
+logs/
+*.out
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Spark Checkpointing
+checkpoint/
+spark-warehouse/
+
+# Kafka Data
+kafka-logs/
+zookeeper/
+tmp/
+
+# Model Files (Optional)
+model/
+models/
+
+# Dataset (Do NOT upload CIC-IDS dataset)
+data/
+*.csv
+*.zip
+
+# Bytecode
+*.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Environment files
+*.env
+*.venv
+*.egg-info/
+dist/
