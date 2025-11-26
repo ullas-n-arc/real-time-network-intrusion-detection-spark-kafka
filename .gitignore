@@ -30,6 +30,7 @@ __pycache__/
 *.env
 .env
 venv/
+spark/
 .env/
 *.sqlite3
 
