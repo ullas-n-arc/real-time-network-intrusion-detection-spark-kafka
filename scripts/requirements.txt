@@ -1,0 +1,23 @@
+# Requirements for Preprocessing Pipeline and Model Training
+# Network Intrusion Detection System
+
+# Core dependencies
+pyspark>=3.0.0,<4.0.0
+
+# Optional: For better performance and additional features
+numpy>=1.19.0
+pandas>=1.1.0
+
+# Optional: For reading/writing parquet files with pandas
+pyarrow>=5.0.0
+fastparquet>=0.7.0
+
+# Optional: For visualization and analysis
+matplotlib>=3.3.0
+seaborn>=0.11.0
+
+# Optional: For Kafka integration (if needed)
+kafka-python>=2.0.0
+
+# Optional: For enhanced logging
+colorlog>=6.0.0
