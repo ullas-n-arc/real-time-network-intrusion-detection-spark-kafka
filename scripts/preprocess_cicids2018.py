@@ -57,7 +57,7 @@ def load_cicids2018_data(spark: SparkSession, data_dir: str):
             df = spark.read.csv(file_path, header=True, inferSchema=True)
             all_columns.update(df.columns)
             dfs.append((csv_file, df))
-            logger.info(f"Loaded {df.count():,} rows with {len(df.columns)} columns from {csv_file}")
+            logger.info(f"Loaded {csv_file} with {len(df.columns)} columns")
         else:
             logger.warning(f"File not found: {file_path}")
     
@@ -83,8 +83,7 @@ def load_cicids2018_data(spark: SparkSession, data_dir: str):
     for df in aligned_dfs[1:]:
         combined_df = combined_df.union(df)
     
-    logger.info(f"Total rows after combining all files: {combined_df.count():,}")
-    logger.info(f"Final schema has {len(combined_df.columns)} columns")
+    logger.info(f"All files combined. Final schema has {len(combined_df.columns)} columns")
     return combined_df
 
 

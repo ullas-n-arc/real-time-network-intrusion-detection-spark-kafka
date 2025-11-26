@@ -51,7 +51,7 @@ def load_cicids2017_data(spark: SparkSession, data_dir: str):
             logger.info(f"Loading {csv_file}...")
             df = spark.read.csv(file_path, header=True, inferSchema=True)
             dfs.append(df)
-            logger.info(f"Loaded {df.count():,} rows from {csv_file}")
+            logger.info(f"Loaded {csv_file} successfully")
         else:
             logger.warning(f"File not found: {file_path}")
     
@@ -63,7 +63,7 @@ def load_cicids2017_data(spark: SparkSession, data_dir: str):
     for df in dfs[1:]:
         combined_df = combined_df.union(df)
     
-    logger.info(f"Total rows after combining all files: {combined_df.count():,}")
+    logger.info(f"All files combined successfully")
     return combined_df
 
 

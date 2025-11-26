@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 def create_spark_session(app_name: str = "NetworkIDSPreprocessing") -> SparkSession:
     """Create and configure Spark session with optimized settings"""
     import os
+    import tempfile
     
     # Fix for Java 17+ security manager issue
     os.environ['PYSPARK_SUBMIT_ARGS'] = '--conf spark.driver.extraJavaOptions="-Djava.security.manager=allow" --conf spark.executor.extraJavaOptions="-Djava.security.manager=allow" pyspark-shell'
@@ -28,18 +29,27 @@ def create_spark_session(app_name: str = "NetworkIDSPreprocessing") -> SparkSess
     # Fix for hostname with underscores - use localhost
     os.environ['SPARK_LOCAL_HOSTNAME'] = 'localhost'
     
+    # Set temp directory to D drive (more space) instead of C drive
+    temp_dir = "D:\\temp\\spark"
+    os.makedirs(temp_dir, exist_ok=True)
+    os.environ['SPARK_LOCAL_DIRS'] = temp_dir
+    
     spark = SparkSession.builder \
         .appName(app_name) \
-        .master("local[*]") \
+        .master("local[2]") \
         .config("spark.sql.adaptive.enabled", "true") \
         .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-        .config("spark.driver.memory", "4g") \
-        .config("spark.executor.memory", "4g") \
-        .config("spark.sql.shuffle.partitions", "200") \
+        .config("spark.driver.memory", "3g") \
+        .config("spark.executor.memory", "3g") \
+        .config("spark.sql.shuffle.partitions", "100") \
         .config("spark.driver.host", "localhost") \
         .config("spark.driver.bindAddress", "127.0.0.1") \
         .config("spark.driver.extraJavaOptions", "-Djava.security.manager=allow") \
         .config("spark.executor.extraJavaOptions", "-Djava.security.manager=allow") \
+        .config("spark.local.dir", temp_dir) \
+        .config("spark.driver.maxResultSize", "2g") \
+        .config("spark.sql.files.maxPartitionBytes", "134217728") \
+        .config("spark.sql.autoBroadcastJoinThreshold", "-1") \
         .getOrCreate()
     
     spark.sparkContext.setLogLevel("WARN")
