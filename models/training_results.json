@@ -1,0 +1,33 @@
+{
+  "rf_binary": {
+    "model": "Random Forest",
+    "task": "Binary Classification",
+    "auc_roc": 0.9757226703241804,
+    "auc_pr": 0.9413921390274911,
+    "accuracy": 0.9714982169293263,
+    "f1": 0.9719226757011122,
+    "precision": 0.9727990758929528,
+    "recall": 0.9714982169293263
+  },
+  "gbt_binary": {
+    "model": "Gradient Boosted Trees",
+    "task": "Binary Classification",
+    "auc_roc": 0.9852229221145318,
+    "auc_pr": 0.9712505304645876,
+    "accuracy": 0.9817280835454301,
+    "f1": 0.9817859464738505,
+    "precision": 0.9818642427192529,
+    "recall": 0.98172808354543
+  },
+  "rf_multiclass": {
+    "model": "Random Forest",
+    "task": "Multi-class Classification (9 classes)",
+    "accuracy": 0.9870,
+    "f1": 0.9858,
+    "precision": 0.9851,
+    "recall": 0.9870
+  },
+  "train_size": 2191961,
+  "test_size": 548492,
+  "total_records": 2740453
+}

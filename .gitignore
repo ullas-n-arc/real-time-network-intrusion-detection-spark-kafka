@@ -71,7 +71,6 @@ tmp/
 
 # Model Files (Optional)
 model/
-models/
 
 # Dataset (Do NOT upload CIC-IDS dataset)
 data/
