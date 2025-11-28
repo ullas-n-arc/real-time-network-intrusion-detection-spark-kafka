@@ -1,0 +1,15 @@
+FROM spark:3.5.0
+
+USER root
+
+# Install Python dependencies
+RUN pip install numpy pandas scikit-learn
+
+# Install your project requirements
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install -r /tmp/requirements.txt
+
+# Create a writable ivy2 cache directory
+RUN mkdir -p /home/spark/.ivy2 && chmod -R 777 /home/spark/.ivy2
+
+USER spark
