@@ -1,0 +1,30 @@
+# Requirements for Real-Time Network Intrusion Detection System
+# ============================================================
+
+# Core - PySpark for ML and Streaming
+pyspark>=3.0.0,<4.0.0
+
+# Data processing
+numpy>=1.19.0
+pandas>=1.1.0
+pyarrow>=5.0.0
+
+# Kafka integration
+kafka-python>=2.0.0
+
+# MongoDB integration
+pymongo>=4.0.0
+
+# Flask for dashboard
+flask>=2.0.0
+
+# Visualization (optional)
+matplotlib>=3.3.0
+seaborn>=0.11.0
+
+# Logging
+colorlog>=6.0.0
+
+# Development/Testing (optional)
+pytest>=7.0.0
+black>=22.0.0

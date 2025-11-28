@@ -1,0 +1,33 @@
+"""
+Configuration package for NIDS
+"""
+
+from .config import (
+    KAFKA_CONFIG,
+    SPARK_CONFIG,
+    MONGODB_CONFIG,
+    MODEL_PATHS,
+    FEATURE_CONFIG,
+    ATTACK_TYPE_MAPPING,
+    STREAMING_CONFIG,
+    ALERT_CONFIG,
+    PRODUCER_CONFIG,
+    BASE_DIR,
+    DATA_DIR,
+    MODELS_DIR,
+)
+
+__all__ = [
+    "KAFKA_CONFIG",
+    "SPARK_CONFIG", 
+    "MONGODB_CONFIG",
+    "MODEL_PATHS",
+    "FEATURE_CONFIG",
+    "ATTACK_TYPE_MAPPING",
+    "STREAMING_CONFIG",
+    "ALERT_CONFIG",
+    "PRODUCER_CONFIG",
+    "BASE_DIR",
+    "DATA_DIR",
+    "MODELS_DIR",
+]
