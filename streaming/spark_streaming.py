@@ -173,16 +173,27 @@ class SparkStreamingProcessor:
         Apply feature preprocessing to match training pipeline.
         """
         # Clean column names (remove spaces, special characters)
+        # Clean column names
         for col_name in df.columns:
-            clean_name = col_name.strip().replace(" ", "_").replace("/", "_per_")
-            if clean_name != col_name:
-                df = df.withColumnRenamed(col_name, clean_name)
-        
-        # Handle missing/infinite values
+            clean_name = (
+            col_name.strip()
+            .replace(" ", "_")
+            .replace("/", "_per_")
+            .replace(".", "_dot_")
+            )
+
+        if clean_name != col_name:
+            df = df.withColumnRenamed(col_name, clean_name)
+
+# Handle missing/infinite values
         numeric_cols = [
-            c.strip().replace(" ", "_").replace("/", "_per_") 
+            c.strip()
+            .replace(" ", "_")
+            .replace("/", "_per_")
+            .replace(".", "_dot_")
             for c in FEATURE_CONFIG["numeric_features"]
         ]
+
         
         for col in numeric_cols:
             if col in df.columns:
