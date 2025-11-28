@@ -73,7 +73,7 @@ tmp/
 model/
 
 # Dataset (Do NOT upload CIC-IDS dataset)
-data/
+/data/
 *.csv
 *.zip
 
@@ -88,3 +88,6 @@ data/
 *.venv
 *.egg-info/
 dist/
+
+!data/preprocessed/
+!data/preprocessed/synthetic_cicids_medium.csv
