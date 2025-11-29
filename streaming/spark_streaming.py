@@ -31,13 +31,14 @@ from pyspark.ml.classification import (
     RandomForestClassificationModel,
     GBTClassificationModel
 )
-from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.feature import VectorAssembler, StandardScalerModel
 
 from config import (
     KAFKA_CONFIG, SPARK_CONFIG, STREAMING_CONFIG,
     MODEL_PATHS, FEATURE_CONFIG, ATTACK_TYPE_MAPPING,
     ALERT_CONFIG, MONGODB_CONFIG
 )
+from config.scaler_paths import SCALER_PATHS
 
 # Configure logging
 logging.basicConfig(
@@ -52,12 +53,14 @@ class SparkStreamingProcessor:
     Real-time network intrusion detection using Spark Structured Streaming.
     """
 
-    def __init__(self):
+    def __init__(self, data_source="cicids2017"):
         """Initialize the streaming processor."""
         self.spark = None
         self.binary_model = None
         self.multiclass_model = None
         self.schema = None
+        self.scaler_model = None
+        self.data_source = data_source
 
     def create_spark_session(self) -> SparkSession:
         """Create and configure Spark session for streaming."""
@@ -134,6 +137,14 @@ class SparkStreamingProcessor:
                 logger.info(f"✅ Loaded multiclass model: {MODEL_PATHS['rf_multiclass']}")
             else:
                 logger.warning("⚠️ Multiclass model not found")
+
+            # Load scaler model for the data source
+            scaler_path = SCALER_PATHS.get(self.data_source)
+            if scaler_path and os.path.exists(scaler_path):
+                self.scaler_model = StandardScalerModel.load(scaler_path)
+                logger.info(f"✅ Loaded scaler model: {scaler_path}")
+            else:
+                logger.warning(f"⚠️ Scaler model not found for data source: {self.data_source}")
 
         except Exception as e:
             logger.error(f"❌ Error loading models: {e}")
@@ -214,6 +225,15 @@ class SparkStreamingProcessor:
             )
             df = assembler.transform(df)
 
+            # Apply scaler if available
+            if self.scaler_model:
+                input_col = self.scaler_model.getInputCol()
+                if input_col != "features":
+                    df = df.withColumnRenamed("features", input_col)
+                df = self.scaler_model.transform(df)
+                if input_col != "features":
+                    df = df.drop(input_col)
+
         return df
 
     def apply_model(self, df: DataFrame) -> DataFrame:
@@ -223,6 +243,11 @@ class SparkStreamingProcessor:
         # Binary classification
         if self.binary_model:
             try:
+                # Use features_scaled if present
+                if "features_scaled" in result_df.columns:
+                    self.binary_model.setFeaturesCol("features_scaled")
+                else:
+                    self.binary_model.setFeaturesCol("features")
                 result_df = self.binary_model.transform(result_df)
                 result_df = result_df.withColumnRenamed("prediction", "binary_prediction")
                 result_df = result_df.withColumnRenamed("probability", "binary_probability")
@@ -235,6 +260,10 @@ class SparkStreamingProcessor:
         # Multiclass classification
         if self.multiclass_model:
             try:
+                if "features_scaled" in result_df.columns:
+                    self.multiclass_model.setFeaturesCol("features_scaled")
+                else:
+                    self.multiclass_model.setFeaturesCol("features")
                 result_df = self.multiclass_model.transform(result_df)
                 result_df = result_df.withColumnRenamed("prediction", "multiclass_prediction")
             except Exception as e:
@@ -374,18 +403,20 @@ class SparkStreamingProcessor:
 
         return query
 
-    def run(self, output_mode: str = "console"):
+    def run(self, output_mode: str = "console", data_source: str = "cicids2017"):
         """
         Main method to run the streaming pipeline.
 
         Args:
             output_mode: Where to write results ('console', 'mongodb', 'kafka', 'all')
+            data_source: Which dataset/scaler to use
         """
         logger.info("=" * 60)
         logger.info("Starting Real-Time Network Intrusion Detection")
         logger.info("=" * 60)
 
         # Initialize
+        self.data_source = data_source
         self.create_spark_session()
         self.define_schema()
         self.load_models()
@@ -452,11 +483,18 @@ def main():
         choices=["console", "mongodb", "kafka", "all"],
         help="Output destination for predictions",
     )
+    parser.add_argument(
+        "--data-source",
+        type=str,
+        default="cicids2017",
+        choices=["cicids2017", "cicids2018", "unsw"],
+        help="Dataset to determine which scaler to use",
+    )
 
     args = parser.parse_args()
 
-    processor = SparkStreamingProcessor()
-    processor.run(output_mode=args.output)
+    processor = SparkStreamingProcessor(data_source=args.data_source)
+    processor.run(output_mode=args.output, data_source=args.data_source)
 
 
 if __name__ == "__main__":

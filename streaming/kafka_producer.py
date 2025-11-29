@@ -147,11 +147,10 @@ class NetworkTrafficProducer:
     
     def load_dataset(self, data_source: str) -> pd.DataFrame:
         """
-        Load a CIC-IDS dataset.
+        Load a CIC-IDS dataset or all preprocessed CSVs.
         
         Args:
-            data_source: Name of the dataset ('cicids2017', 'cicids2018', 'unsw')
-            
+            data_source: Name of the dataset ('cicids2017', 'cicids2018', 'unsw', 'preprocessed')
         Returns:
             DataFrame containing the dataset
         """
@@ -161,26 +160,24 @@ class NetworkTrafficProducer:
             'unsw': DATA_DIR / 'UNSW-NB15',
             'preprocessed': DATA_DIR / 'preprocessed',
         }
-        
         if data_source not in dataset_paths:
             raise ValueError(f"Unknown data source: {data_source}")
-        
         data_path = dataset_paths[data_source]
-        
         if not data_path.exists():
             raise FileNotFoundError(f"Data directory not found: {data_path}")
-        
         # Load CSV files
-        csv_files = list(data_path.glob("*.csv"))
+        csv_files = sorted(data_path.glob("*.csv"))
         if not csv_files:
             raise FileNotFoundError(f"No CSV files found in {data_path}")
-        
         logger.info(f"Found {len(csv_files)} CSV files in {data_path}")
-        
-        # Load first file for now (can be extended to load all)
-        df = pd.read_csv(csv_files[0], low_memory=False)
-        logger.info(f"✅ Loaded {len(df):,} records from {csv_files[0].name}")
-        
+        # Concatenate all CSV files in order
+        df_list = []
+        for csv_file in csv_files:
+            df_part = pd.read_csv(csv_file, low_memory=False)
+            logger.info(f"✅ Loaded {len(df_part):,} records from {csv_file.name}")
+            df_list.append(df_part)
+        df = pd.concat(df_list, ignore_index=True)
+        logger.info(f"✅ Total loaded records from all files: {len(df):,}")
         return df
     
     def preprocess_record(self, row: pd.Series) -> Dict[str, Any]:

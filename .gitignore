@@ -91,3 +91,4 @@ dist/
 
 !data/preprocessed/
 !data/preprocessed/synthetic_cicids_full_medium.csv
+.devcontainer/devcontainer.json
