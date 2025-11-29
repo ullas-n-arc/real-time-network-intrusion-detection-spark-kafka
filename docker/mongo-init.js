@@ -61,13 +61,4 @@ db.intrusion_alerts.createIndex({ "severity": 1, "processed_at": -1 });
 // Create statistics collection
 db.createCollection('alert_statistics');
 
-// Create a user for the application
-db.createUser({
-    user: 'nids_user',
-    pwd: 'nids_password',
-    roles: [
-        { role: 'readWrite', db: 'nids_db' }
-    ]
-});
-
 print('MongoDB initialization complete!');
