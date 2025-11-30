@@ -8,6 +8,7 @@ from .config import (
     MONGODB_CONFIG,
     MODEL_PATHS,
     FEATURE_CONFIG,
+    UNSW_FEATURE_CONFIG,
     ATTACK_TYPE_MAPPING,
     STREAMING_CONFIG,
     ALERT_CONFIG,
@@ -17,12 +18,15 @@ from .config import (
     MODELS_DIR,
 )
 
+from .scaler_paths import SCALER_PATHS, MODEL_PATHS as DATASET_MODEL_PATHS
+
 __all__ = [
     "KAFKA_CONFIG",
     "SPARK_CONFIG", 
     "MONGODB_CONFIG",
     "MODEL_PATHS",
     "FEATURE_CONFIG",
+    "UNSW_FEATURE_CONFIG",
     "ATTACK_TYPE_MAPPING",
     "STREAMING_CONFIG",
     "ALERT_CONFIG",
@@ -30,4 +34,6 @@ __all__ = [
     "BASE_DIR",
     "DATA_DIR",
     "MODELS_DIR",
+    "SCALER_PATHS",
+    "DATASET_MODEL_PATHS",
 ]

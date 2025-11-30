@@ -1,0 +1,24 @@
+{
+  "label_to_index": {
+    "Normal": 0,
+    "Exploits": 1,
+    "Fuzzers": 2,
+    "DoS": 3,
+    "Reconnaissance": 4,
+    "Analysis": 5,
+    "Backdoor": 6,
+    "Shellcode": 7,
+    "Worms": 8
+  },
+  "index_to_label": {
+    "0": "Normal",
+    "1": "Exploits",
+    "2": "Fuzzers",
+    "3": "DoS",
+    "4": "Reconnaissance",
+    "5": "Analysis",
+    "6": "Backdoor",
+    "7": "Shellcode",
+    "8": "Worms"
+  }
+}

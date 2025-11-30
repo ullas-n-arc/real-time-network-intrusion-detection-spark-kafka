@@ -35,10 +35,15 @@ from pyspark.ml.feature import VectorAssembler, StandardScalerModel
 
 from config import (
     KAFKA_CONFIG, SPARK_CONFIG, STREAMING_CONFIG,
-    MODEL_PATHS, FEATURE_CONFIG, ATTACK_TYPE_MAPPING,
-    ALERT_CONFIG, MONGODB_CONFIG
+    MODEL_PATHS, FEATURE_CONFIG, UNSW_FEATURE_CONFIG, ATTACK_TYPE_MAPPING,
+    ALERT_CONFIG, MONGODB_CONFIG, SCALER_PATHS, DATASET_MODEL_PATHS
 )
-from config.scaler_paths import SCALER_PATHS
+
+# Try to import UNSW attack mapping
+try:
+    from config import UNSW_ATTACK_TYPE_MAPPING
+except ImportError:
+    UNSW_ATTACK_TYPE_MAPPING = ATTACK_TYPE_MAPPING
 
 # Configure logging
 logging.basicConfig(
@@ -63,7 +68,7 @@ class SparkStreamingProcessor:
         self.data_source = data_source
 
     def create_spark_session(self) -> SparkSession:
-        """Create and configure Spark session for streaming."""
+        """Create and configure Spark session for streaming with optimized settings."""
         logger.info("Creating Spark session...")
 
         # Build packages string
@@ -72,12 +77,33 @@ class SparkStreamingProcessor:
         builder = (
             SparkSession.builder
             .appName(SPARK_CONFIG["app_name"])
-            .config("spark.driver.memory", SPARK_CONFIG["driver_memory"])
-            .config("spark.executor.memory", SPARK_CONFIG["executor_memory"])
-            .config("spark.sql.shuffle.partitions", SPARK_CONFIG["shuffle_partitions"])
+            .config("spark.driver.memory", "2g")
+            .config("spark.executor.memory", "2g")
+            # Reduce shuffle partitions for local mode - key optimization
+            .config("spark.sql.shuffle.partitions", "2")
+            .config("spark.default.parallelism", "2")
+            # Use Kryo serialization for faster serialization
             .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
+            .config("spark.kryoserializer.buffer.max", "512m")
+            # Streaming optimizations
             .config("spark.streaming.stopGracefullyOnShutdown", "true")
             .config("spark.sql.streaming.checkpointLocation", STREAMING_CONFIG["checkpoint_dir"])
+            # Reduce overhead
+            .config("spark.driver.maxResultSize", "512m")
+            # Enable adaptive query execution for better performance
+            .config("spark.sql.adaptive.enabled", "true")
+            .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
+            .config("spark.sql.adaptive.skewJoin.enabled", "true")
+            # Reduce network timeouts for faster failure detection
+            .config("spark.network.timeout", "120s")
+            .config("spark.executor.heartbeatInterval", "20s")
+            # Optimize Kafka reading
+            .config("spark.streaming.kafka.maxRatePerPartition", "1000")
+            # Reduce logging overhead
+            .config("spark.sql.streaming.metricsEnabled", "false")
+            # Memory management
+            .config("spark.memory.fraction", "0.8")
+            .config("spark.memory.storageFraction", "0.3")
         )
 
         if packages:
@@ -96,18 +122,37 @@ class SparkStreamingProcessor:
         """Define the schema for incoming network traffic data."""
         fields = []
 
+        # Choose features based on data source
+        if self.data_source == "unsw":
+            feature_list = UNSW_FEATURE_CONFIG["numeric_features"]
+            # Add id field first (sent by producer but not used for prediction)
+            fields.append(StructField("id", DoubleType(), True))
+        else:
+            feature_list = FEATURE_CONFIG["numeric_features"]
+
         # Numeric feature fields
-        for feature in FEATURE_CONFIG["numeric_features"]:
+        for feature in feature_list:
             fields.append(StructField(feature.strip(), DoubleType(), True))
 
-        # Metadata fields
-        fields.extend([
-            StructField("Label", StringType(), True),
-            StructField("Source IP", StringType(), True),
-            StructField("Destination IP", StringType(), True),
-            StructField("timestamp", StringType(), True),
-            StructField("producer_id", IntegerType(), True),
-        ])
+        # Metadata fields based on data source
+        if self.data_source == "unsw":
+            fields.extend([
+                StructField("attack_cat", StringType(), True),
+                StructField("label", DoubleType(), True),  # Producer sends as float
+                StructField("proto", StringType(), True),
+                StructField("service", StringType(), True),
+                StructField("state", StringType(), True),
+                StructField("timestamp", StringType(), True),
+                StructField("producer_id", IntegerType(), True),
+            ])
+        else:
+            fields.extend([
+                StructField("Label", StringType(), True),
+                StructField("Source IP", StringType(), True),
+                StructField("Destination IP", StringType(), True),
+                StructField("timestamp", StringType(), True),
+                StructField("producer_id", IntegerType(), True),
+            ])
 
         self.schema = StructType(fields)
         return self.schema
@@ -117,26 +162,42 @@ class SparkStreamingProcessor:
         logger.info("Loading ML models...")
 
         try:
-            # Random Forest binary classifier
-            if os.path.exists(MODEL_PATHS["rf_binary"]):
-                self.binary_model = RandomForestClassificationModel.load(MODEL_PATHS["rf_binary"])
-                logger.info(f"✅ Loaded binary model: {MODEL_PATHS['rf_binary']}")
+            # Load binary model based on data source
+            model_path = DATASET_MODEL_PATHS.get(self.data_source, MODEL_PATHS["rf_binary"])
+            if os.path.exists(model_path):
+                self.binary_model = RandomForestClassificationModel.load(model_path)
+                logger.info(f"✅ Loaded binary model: {model_path}")
             else:
-                logger.warning(f"⚠️ Binary model not found at {MODEL_PATHS['rf_binary']}")
+                # Fallback to default
+                if os.path.exists(MODEL_PATHS["rf_binary"]):
+                    self.binary_model = RandomForestClassificationModel.load(MODEL_PATHS["rf_binary"])
+                    logger.info(f"✅ Loaded fallback binary model: {MODEL_PATHS['rf_binary']}")
+                else:
+                    logger.warning(f"⚠️ Binary model not found at {model_path}")
 
-            # Multiclass classifier (improved preferred)
-            if os.path.exists(MODEL_PATHS.get("rf_multiclass_improved", "")):
-                self.multiclass_model = RandomForestClassificationModel.load(
-                    MODEL_PATHS["rf_multiclass_improved"]
-                )
-                logger.info("✅ Loaded improved multiclass model")
-            elif os.path.exists(MODEL_PATHS["rf_multiclass"]):
-                self.multiclass_model = RandomForestClassificationModel.load(
-                    MODEL_PATHS["rf_multiclass"]
-                )
-                logger.info(f"✅ Loaded multiclass model: {MODEL_PATHS['rf_multiclass']}")
+            # Multiclass classifier
+            if self.data_source == "unsw":
+                # Load UNSW multiclass model
+                unsw_multiclass_path = MODEL_PATHS.get("unsw_multiclass", "")
+                if os.path.exists(unsw_multiclass_path):
+                    self.multiclass_model = RandomForestClassificationModel.load(unsw_multiclass_path)
+                    logger.info(f"✅ Loaded UNSW multiclass model: {unsw_multiclass_path}")
+                else:
+                    logger.warning(f"⚠️ UNSW multiclass model not found at {unsw_multiclass_path}")
             else:
-                logger.warning("⚠️ Multiclass model not found")
+                # CIC-IDS multiclass
+                if os.path.exists(MODEL_PATHS.get("rf_multiclass_improved", "")):
+                    self.multiclass_model = RandomForestClassificationModel.load(
+                        MODEL_PATHS["rf_multiclass_improved"]
+                    )
+                    logger.info("✅ Loaded improved multiclass model")
+                elif os.path.exists(MODEL_PATHS["rf_multiclass"]):
+                    self.multiclass_model = RandomForestClassificationModel.load(
+                        MODEL_PATHS["rf_multiclass"]
+                    )
+                    logger.info(f"✅ Loaded multiclass model: {MODEL_PATHS['rf_multiclass']}")
+                else:
+                    logger.warning("⚠️ Multiclass model not found")
 
             # Load scaler model for the data source
             scaler_path = SCALER_PATHS.get(self.data_source)
@@ -151,7 +212,7 @@ class SparkStreamingProcessor:
             raise
 
     def read_from_kafka(self) -> DataFrame:
-        """Read streaming data from Kafka topic."""
+        """Read streaming data from Kafka topic with optimized settings."""
         logger.info(f"Connecting to Kafka topic: {KAFKA_CONFIG['topic']}")
 
         kafka_df = (
@@ -159,8 +220,11 @@ class SparkStreamingProcessor:
             .format("kafka")
             .option("kafka.bootstrap.servers", KAFKA_CONFIG["bootstrap_servers"])
             .option("subscribe", KAFKA_CONFIG["topic"])
-            .option("startingOffsets", "latest")
+            .option("startingOffsets", "latest")  # Start from latest for faster startup
             .option("failOnDataLoss", "false")
+            .option("maxOffsetsPerTrigger", "500")  # Limit records per batch for faster processing
+            .option("kafka.fetch.min.bytes", "1")  # Don't wait for large batches
+            .option("kafka.fetch.max.wait.ms", "100")  # Reduce wait time
             .load()
         )
 
@@ -182,8 +246,10 @@ class SparkStreamingProcessor:
     def preprocess_features(self, df: DataFrame) -> DataFrame:
         """
         Apply feature preprocessing to match training pipeline.
+        Optimized for streaming performance.
         """
-        # 1) Clean column names (spaces, slashes, dots)
+        # 1) Clean column names (spaces, slashes, dots) - do all renames at once
+        rename_map = {}
         for col_name in df.columns:
             clean_name = (
                 col_name.strip()
@@ -192,47 +258,65 @@ class SparkStreamingProcessor:
                 .replace(".", "_dot_")
             )
             if clean_name != col_name:
-                df = df.withColumnRenamed(col_name, clean_name)
+                rename_map[col_name] = clean_name
+        
+        # Apply all renames at once
+        for old_name, new_name in rename_map.items():
+            df = df.withColumnRenamed(old_name, new_name)
 
-        # 2) Build cleaned numeric column names from config
-        numeric_cols = [
-            c.strip()
-             .replace(" ", "_")
-             .replace("/", "_per_")
-             .replace(".", "_dot_")
-            for c in FEATURE_CONFIG["numeric_features"]
-        ]
+        # 2) Choose features based on data source
+        if self.data_source == "unsw":
+            numeric_cols = UNSW_FEATURE_CONFIG["numeric_features"]
+        else:
+            numeric_cols = [
+                c.strip()
+                 .replace(" ", "_")
+                 .replace("/", "_per_")
+                 .replace(".", "_dot_")
+                for c in FEATURE_CONFIG["numeric_features"]
+            ]
 
-        # 3) Handle missing / infinite values
-        for col in numeric_cols:
-            if col in df.columns:
-                df = df.withColumn(
-                    col,
-                    F.when(F.col(col).isNull(), 0.0)
-                     .when(F.col(col) == float("inf"), 0.0)
-                     .when(F.col(col) == float("-inf"), 0.0)
-                     .otherwise(F.col(col))
+        # 3) Handle missing / infinite values - use coalesce and nanvl for efficiency
+        available_features = [c for c in numeric_cols if c in df.columns]
+        
+        # Build a single select expression for all columns to avoid multiple withColumn calls
+        select_exprs = []
+        for col_name in df.columns:
+            if col_name in available_features:
+                # Replace null/inf with 0.0 efficiently
+                select_exprs.append(
+                    F.coalesce(
+                        F.nanvl(F.col(col_name), F.lit(0.0)),
+                        F.lit(0.0)
+                    ).alias(col_name)
                 )
+            else:
+                select_exprs.append(F.col(col_name))
+        
+        df = df.select(select_exprs)
 
         # 4) Assemble features vector
-        available_features = [c for c in numeric_cols if c in df.columns]
 
         if available_features:
             assembler = VectorAssembler(
                 inputCols=available_features,
-                outputCol="features",
-                handleInvalid="skip"
+                outputCol="features_raw",
+                handleInvalid="keep"  # "keep" is faster than "skip"
             )
             df = assembler.transform(df)
 
             # Apply scaler if available
             if self.scaler_model:
                 input_col = self.scaler_model.getInputCol()
-                if input_col != "features":
-                    df = df.withColumnRenamed("features", input_col)
+                
+                # Ensure input column matches what scaler expects
+                if "features_raw" in df.columns and input_col != "features_raw":
+                    df = df.withColumnRenamed("features_raw", input_col)
+                
                 df = self.scaler_model.transform(df)
-                if input_col != "features":
-                    df = df.drop(input_col)
+            else:
+                # No scaler - rename features_raw to features for model
+                df = df.withColumnRenamed("features_raw", "features")
 
         return df
 
@@ -243,29 +327,32 @@ class SparkStreamingProcessor:
         # Binary classification
         if self.binary_model:
             try:
-                # Use features_scaled if present
-                if "features_scaled" in result_df.columns:
-                    self.binary_model.setFeaturesCol("features_scaled")
-                else:
-                    self.binary_model.setFeaturesCol("features")
+                features_col = "features" if "features" in result_df.columns else "features_scaled"
+                self.binary_model.setFeaturesCol(features_col)
+                self.binary_model.setPredictionCol("binary_prediction")
                 result_df = self.binary_model.transform(result_df)
-                result_df = result_df.withColumnRenamed("prediction", "binary_prediction")
-                result_df = result_df.withColumnRenamed("probability", "binary_probability")
+                # Drop intermediate columns to reduce memory
+                if "rawPrediction" in result_df.columns:
+                    result_df = result_df.drop("rawPrediction")
+                if "probability" in result_df.columns:
+                    result_df = result_df.drop("probability")
             except Exception as e:
                 logger.warning(f"Binary model prediction failed: {e}")
                 result_df = result_df.withColumn("binary_prediction", F.lit(-1.0))
         else:
             result_df = result_df.withColumn("binary_prediction", F.lit(-1.0))
 
-        # Multiclass classification
+        # Multiclass classification (for all datasets including UNSW)
         if self.multiclass_model:
             try:
-                if "features_scaled" in result_df.columns:
-                    self.multiclass_model.setFeaturesCol("features_scaled")
-                else:
-                    self.multiclass_model.setFeaturesCol("features")
+                features_col = "features" if "features" in result_df.columns else "features_scaled"
+                self.multiclass_model.setFeaturesCol(features_col)
+                self.multiclass_model.setPredictionCol("multiclass_prediction")
                 result_df = self.multiclass_model.transform(result_df)
-                result_df = result_df.withColumnRenamed("prediction", "multiclass_prediction")
+                if "rawPrediction" in result_df.columns:
+                    result_df = result_df.drop("rawPrediction")
+                if "probability" in result_df.columns:
+                    result_df = result_df.drop("probability")
             except Exception as e:
                 logger.warning(f"Multiclass model prediction failed: {e}")
                 result_df = result_df.withColumn("multiclass_prediction", F.lit(-1.0))
@@ -277,9 +364,15 @@ class SparkStreamingProcessor:
     def enrich_predictions(self, df: DataFrame) -> DataFrame:
         """Add attack type labels and severity to predictions."""
 
-        # Safer mapping: build a CASE-like expression instead of create_map()
+        # Choose attack mapping based on data source
+        if self.data_source == "unsw":
+            attack_mapping = UNSW_ATTACK_TYPE_MAPPING
+        else:
+            attack_mapping = ATTACK_TYPE_MAPPING
+
+        # Build CASE expression for attack type mapping
         attack_type_col = F.lit("Unknown")
-        for k, v in ATTACK_TYPE_MAPPING.items():
+        for k, v in attack_mapping.items():
             attack_type_col = F.when(
                 F.col("multiclass_prediction") == float(k),
                 F.lit(v)
@@ -311,10 +404,10 @@ class SparkStreamingProcessor:
         return df
 
     def write_to_console(self, df: DataFrame, output_mode: str = "append"):
-        """Write results to console (for debugging)."""
+        """Write results to console for monitoring."""
+        # Select meaningful columns for display
         display_cols = [
-            "kafka_timestamp", "is_attack", "attack_type",
-            "severity", "binary_prediction", "multiclass_prediction"
+            "is_attack", "attack_type", "severity", "processed_at"
         ]
 
         available_cols = [c for c in display_cols if c in df.columns]
@@ -325,7 +418,8 @@ class SparkStreamingProcessor:
               .outputMode(output_mode)
               .format("console")
               .option("truncate", "false")
-              .trigger(processingTime=STREAMING_CONFIG["trigger_interval"])
+              .option("numRows", "20")
+              .trigger(processingTime="2 seconds")
               .start()
         )
 
@@ -353,19 +447,42 @@ class SparkStreamingProcessor:
                 db = client[MONGODB_CONFIG["database"]]
                 collection = db[MONGODB_CONFIG["alerts_collection"]]
 
-                records = alerts_df.toPandas().to_dict("records")
+                # Select only serializable columns for MongoDB (exclude Vector types)
+                mongo_columns = [
+                    "is_attack", "attack_type", "severity", 
+                    "binary_prediction", "multiclass_prediction",
+                    "processed_at", "kafka_timestamp"
+                ]
+                # Add optional source columns if present
+                for col in ["attack_cat", "label", "proto", "service", "state"]:
+                    if col in alerts_df.columns:
+                        mongo_columns.append(col)
+                
+                available_cols = [c for c in mongo_columns if c in alerts_df.columns]
+                alerts_subset = alerts_df.select(available_cols)
+                
+                records = alerts_subset.toPandas().to_dict("records")
 
                 for record in records:
                     record["batch_id"] = batch_id
                     record["inserted_at"] = datetime.now()
+                    # Convert any remaining non-serializable types
+                    for key, val in list(record.items()):
+                        if hasattr(val, 'item'):  # numpy types
+                            record[key] = val.item()
+                        elif str(type(val)) == "<class 'pandas._libs.tslibs.timestamps.Timestamp'>":
+                            record[key] = val.to_pydatetime()
 
-                collection.insert_many(records)
-                logger.info(f"Batch {batch_id}: Inserted {len(records)} alerts to MongoDB")
+                if records:
+                    collection.insert_many(records)
+                    logger.info(f"Batch {batch_id}: Inserted {len(records)} alerts to MongoDB")
 
                 client.close()
 
             except Exception as e:
                 logger.error(f"Failed to write to MongoDB: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
         query = (
             df.writeStream

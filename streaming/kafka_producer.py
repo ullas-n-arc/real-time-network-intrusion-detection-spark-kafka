@@ -157,16 +157,26 @@ class NetworkTrafficProducer:
         dataset_paths = {
             'cicids2017': DATA_DIR / 'CSE-CIC-IDS2017',
             'cicids2018': DATA_DIR / 'CSE-CIC-IDS2018',
-            'unsw': DATA_DIR / 'UNSW-NB15',
+            'unsw': DATA_DIR / 'preprocessed',  # UNSW data is in preprocessed folder
             'preprocessed': DATA_DIR / 'preprocessed',
         }
+        
+        # For UNSW, use only testing set for simulation
+        unsw_files = ['UNSW_NB15_testing-set.csv']
+        
         if data_source not in dataset_paths:
             raise ValueError(f"Unknown data source: {data_source}")
         data_path = dataset_paths[data_source]
         if not data_path.exists():
             raise FileNotFoundError(f"Data directory not found: {data_path}")
+        
         # Load CSV files
-        csv_files = sorted(data_path.glob("*.csv"))
+        if data_source == 'unsw':
+            # Load only UNSW files
+            csv_files = [data_path / f for f in unsw_files if (data_path / f).exists()]
+        else:
+            csv_files = sorted(data_path.glob("*.csv"))
+        
         if not csv_files:
             raise FileNotFoundError(f"No CSV files found in {data_path}")
         logger.info(f"Found {len(csv_files)} CSV files in {data_path}")
@@ -199,9 +209,10 @@ class NetworkTrafficProducer:
             # Handle different data types
             if pd.isna(value):
                 record[clean_key] = 0.0
-            elif isinstance(value, (np.integer, np.floating)):
+            elif isinstance(value, (int, float, np.integer, np.floating)):
+                # Handle both Python native and numpy numeric types
                 record[clean_key] = float(value)
-            elif isinstance(value, np.bool_):
+            elif isinstance(value, (bool, np.bool_)):
                 record[clean_key] = bool(value)
             else:
                 record[clean_key] = str(value)

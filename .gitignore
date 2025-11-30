@@ -72,10 +72,9 @@ tmp/
 # Model Files (Optional)
 model/
 
-# Dataset (Do NOT upload CIC-IDS dataset)
-/data/
+# Dataset (Do NOT upload large CIC-IDS datasets - your friends have 20GB!)
+# This ignores all CSV files by default, then we explicitly allow specific ones below
 *.csv
-*.zip
 
 # Bytecode
 *.class
@@ -89,6 +88,21 @@ model/
 *.egg-info/
 dist/
 
+# ============================================================
+# ALLOWED DATA FILES (tracked in git)
+# These specific files are required for the project to run
+# Other CSV files will be ignored to prevent large uploads
+# ============================================================
+
+# Allow the data directory structure
+!data/
 !data/preprocessed/
-!data/preprocessed/synthetic_cicids_full_medium.csv
+!data/training/
+
+# Allow specific preprocessed files (required for streaming simulation)
+!data/preprocessed/UNSW_NB15_testing-set.csv
+!data/preprocessed/thursday_sample.csv
+
+# Allow specific training files (required for model training)
+!data/training/UNSW_NB15_training-set.csv
 .devcontainer/devcontainer.json

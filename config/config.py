@@ -47,6 +47,7 @@ MODEL_PATHS = {
     "gbt_binary": str(MODELS_DIR / "gbt_binary_classifier"),
     "rf_multiclass": str(MODELS_DIR / "rf_multiclass_classifier"),
     "rf_multiclass_improved": str(MODELS_DIR / "rf_multiclass_improved"),
+    "unsw_multiclass": str(MODELS_DIR / "unsw_rf_multiclass_classifier"),
 }
 
 # Feature configuration - these should match your training pipeline
@@ -77,7 +78,22 @@ FEATURE_CONFIG = {
     "label_column": "Label",
 }
 
-# Attack type mapping (unified labels)
+# UNSW-NB15 Feature configuration 
+UNSW_FEATURE_CONFIG = {
+    "numeric_features": [
+        "dur", "spkts", "dpkts", "sbytes", "dbytes", "rate", "sttl", "dttl",
+        "sload", "dload", "sloss", "dloss", "sinpkt", "dinpkt", "sjit", "djit",
+        "swin", "stcpb", "dtcpb", "dwin", "tcprtt", "synack", "ackdat", "smean",
+        "dmean", "trans_depth", "response_body_len", "ct_srv_src", "ct_state_ttl",
+        "ct_dst_ltm", "ct_src_dport_ltm", "ct_dst_sport_ltm", "ct_dst_src_ltm",
+        "is_ftp_login", "ct_ftp_cmd", "ct_flw_http_mthd", "ct_src_ltm", "ct_srv_dst",
+        "is_sm_ips_ports"
+    ],
+    "label_column": "label",
+    "attack_column": "attack_cat",
+}
+
+# Attack type mapping (CIC-IDS labels)
 ATTACK_TYPE_MAPPING = {
     0: "Benign",
     1: "DoS",
@@ -90,19 +106,32 @@ ATTACK_TYPE_MAPPING = {
     8: "Heartbleed",
 }
 
+# UNSW-NB15 Attack type mapping (from multiclass model)
+UNSW_ATTACK_TYPE_MAPPING = {
+    0: "Normal",
+    1: "Exploits",
+    2: "Fuzzers",
+    3: "DoS",
+    4: "Reconnaissance",
+    5: "Analysis",
+    6: "Backdoor",
+    7: "Shellcode",
+    8: "Worms",
+}
+
 # Streaming configuration
 STREAMING_CONFIG = {
     "checkpoint_dir": str(BASE_DIR / "checkpoints"),
-    "trigger_interval": "5 seconds",  # Process micro-batches every 5 seconds
-    "watermark_delay": "10 seconds",
+    "trigger_interval": "1 second",  # Faster micro-batch processing
+    "watermark_delay": "5 seconds",
 }
 
 # Alert thresholds
 ALERT_CONFIG = {
     "prediction_threshold": 0.5,  # For binary classification
-    "high_severity_types": ["DDoS", "DoS", "Infiltration", "Heartbleed"],
-    "medium_severity_types": ["BruteForce", "WebAttack", "Botnet"],
-    "low_severity_types": ["PortScan"],
+    "high_severity_types": ["DDoS", "DoS", "Infiltration", "Heartbleed", "Exploits", "Backdoor", "Shellcode", "Worms"],
+    "medium_severity_types": ["BruteForce", "WebAttack", "Botnet", "Analysis", "Fuzzers"],
+    "low_severity_types": ["PortScan", "Reconnaissance"],
 }
 
 # Producer configuration
