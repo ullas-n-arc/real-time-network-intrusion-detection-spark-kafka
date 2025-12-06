@@ -157,14 +157,19 @@ class NetworkTrafficProducer:
         dataset_paths = {
             'cicids2017': DATA_DIR / 'preprocessed',  # Use preprocessed folder with thursday_sample.csv
             'cicids2018': DATA_DIR / 'CSE-CIC-IDS2018',
-            'unsw': DATA_DIR / 'testing',  # UNSW testing data
+            'unsw': DATA_DIR / 'UNSW-NB15', 
+            'unsw1': DATA_DIR / 'UNSW-NB15',  # UNSW-NB15_1.csv
+            'unsw2': DATA_DIR / 'testing',    # UNSW_NB15_testing-set.csv
             'preprocessed': DATA_DIR / 'preprocessed',
         }
         
-        # For UNSW, use only testing set for simulation
-        unsw_files = ['UNSW_NB15_testing-set.csv']
         # For CIC-IDS 2017, use thursday_sample.csv
         cicids2017_files = ['thursday_sample.csv']
+        
+        # For UNSW-NB15, use the available CSV files
+        unsw_files = ['UNSW-NB15_1.csv']
+        unsw1_files = ['UNSW-NB15_1.csv']
+        unsw2_files = ['UNSW_NB15_testing-set.csv']
         
         if data_source not in dataset_paths:
             raise ValueError(f"Unknown data source: {data_source}")
@@ -176,6 +181,12 @@ class NetworkTrafficProducer:
         if data_source == 'unsw':
             # Load only UNSW files
             csv_files = [data_path / f for f in unsw_files if (data_path / f).exists()]
+        elif data_source == 'unsw1':
+            # Load UNSW-NB15_1.csv from UNSW-NB15 folder
+            csv_files = [data_path / f for f in unsw1_files if (data_path / f).exists()]
+        elif data_source == 'unsw2':
+            # Load UNSW_NB15_testing-set.csv from testing folder
+            csv_files = [data_path / f for f in unsw2_files if (data_path / f).exists()]
         elif data_source == 'cicids2017':
             # Load only CIC-IDS 2017 files (thursday_sample.csv)
             csv_files = [data_path / f for f in cicids2017_files if (data_path / f).exists()]
@@ -336,7 +347,7 @@ def main():
         '--data-source',
         type=str,
         default='cicids2017',
-        choices=['cicids2017', 'cicids2018', 'unsw', 'preprocessed'],
+        choices=['cicids2017', 'cicids2018', 'unsw','unsw1','unsw2' ,'preprocessed'],
         help='Dataset to stream'
     )
     parser.add_argument(

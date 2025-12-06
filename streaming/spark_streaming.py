@@ -104,11 +104,11 @@ class SparkStreamingProcessor:
         builder = (
             SparkSession.builder
             .appName(SPARK_CONFIG["app_name"])
-            .config("spark.driver.memory", "2g")
-            .config("spark.executor.memory", "2g")
+            .config("spark.driver.memory", "1g")
+            .config("spark.executor.memory", "1g")
             # Reduce shuffle partitions for local mode - key optimization
-            .config("spark.sql.shuffle.partitions", "2")
-            .config("spark.default.parallelism", "2")
+            .config("spark.sql.shuffle.partitions", "1")
+            .config("spark.default.parallelism", "1")
             # Use Kryo serialization for faster serialization
             .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
             .config("spark.kryoserializer.buffer.max", "512m")
@@ -254,7 +254,7 @@ class SparkStreamingProcessor:
             .option("subscribe", KAFKA_CONFIG["topic"])
             .option("startingOffsets", "latest")  # Start from latest for faster startup
             .option("failOnDataLoss", "false")
-            .option("maxOffsetsPerTrigger", "500")  # Limit records per batch for faster processing
+            .option("maxOffsetsPerTrigger", "50")  # Small batch size for low memory
             .option("kafka.fetch.min.bytes", "1")  # Don't wait for large batches
             .option("kafka.fetch.max.wait.ms", "100")  # Reduce wait time
             .load()
@@ -476,6 +476,10 @@ class SparkStreamingProcessor:
 
         # Processing timestamp
         df = df.withColumn("processed_at", F.current_timestamp())
+        
+        # Drop the features vector column to reduce memory (no longer needed)
+        if "features" in df.columns:
+            df = df.drop("features")
 
         return df
 
@@ -645,6 +649,11 @@ class SparkStreamingProcessor:
         # Build streaming pipeline
         kafka_df = self.read_from_kafka()
         parsed_df = self.parse_json(kafka_df)
+        
+        # Add watermark early (right after parsing) to prevent unbounded memory growth
+        # Watermark must be applied to the event time column before any operations
+        parsed_df = parsed_df.withWatermark("kafka_timestamp", "30 seconds")
+        
         processed_df = self.preprocess_features(parsed_df)
         predicted_df = self.apply_model(processed_df)
         enriched_df = self.enrich_predictions(predicted_df)
@@ -686,8 +695,13 @@ class SparkStreamingProcessor:
                 query.awaitTermination()
         except KeyboardInterrupt:
             logger.info("\n⏹️ Stopping streaming pipeline...")
-            for query in queries:
-                query.stop()
+            try:
+                for query in queries:
+                    query.stop()
+            except Exception as e:
+                logger.warning(f"Error stopping queries: {e}")
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
         finally:
             # End session in MongoDB
             if output_mode in ["mongodb", "all"]:
@@ -701,8 +715,14 @@ class SparkStreamingProcessor:
                     logger.warning(f"Could not end session: {e}")
             
             clear_session()
-            self.spark.stop()
-            logger.info("✅ Spark session stopped")
+            
+            # Stop Spark session safely
+            try:
+                if self.spark:
+                    self.spark.stop()
+                    logger.info("✅ Spark session stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping Spark: {e}")
 
 
 def main():

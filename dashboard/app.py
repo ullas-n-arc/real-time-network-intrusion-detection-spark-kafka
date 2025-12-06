@@ -246,6 +246,33 @@ DASHBOARD_TEMPLATE = """
         }
         .all-sessions-btn:hover { background: rgba(0, 217, 255, 0.1); }
         .all-sessions-btn.active { background: #00d9ff; color: #1a1a2e; }
+        .delete-btn {
+            background: transparent;
+            border: 1px solid #ff4444;
+            color: #ff4444;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85em;
+            margin-left: 5px;
+        }
+        .delete-btn:hover { background: rgba(255, 68, 68, 0.2); }
+        .delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .delete-all-btn {
+            background: #ff4444;
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.85em;
+        }
+        .delete-all-btn:hover { background: #cc3333; }
+        .session-controls {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
     </style>
 </head>
 <body>
@@ -255,9 +282,13 @@ DASHBOARD_TEMPLATE = """
             <div class="header-right">
                 <div class="session-info">
                     <span class="session-label">Session:</span>
-                    <select id="session-select" class="session-select" onchange="changeSession()">
-                        <option value="">All Sessions</option>
-                    </select>
+                    <div class="session-controls">
+                        <select id="session-select" class="session-select" onchange="changeSession()">
+                            <option value="">All Sessions</option>
+                        </select>
+                        <button class="delete-btn" id="delete-session-btn" onclick="deleteCurrentSession()" title="Delete selected session">🗑️</button>
+                        <button class="delete-all-btn" onclick="deleteAllSessions()" title="Delete all sessions">Clear All</button>
+                    </div>
                 </div>
                 <div class="status">
                     <span class="status-dot" id="status-dot"></span>
@@ -315,8 +346,6 @@ DASHBOARD_TEMPLATE = """
     </div>
 
     <script>
-        async function loadData() {
-            // Load stats
         let currentSessionId = null;
         
         async function loadSessions() {
@@ -426,6 +455,79 @@ DASHBOARD_TEMPLATE = """
                 }
             } catch (e) {
                 console.error('Failed to load alerts:', e);
+            }
+            
+            // Update delete button state
+            updateDeleteButtonState();
+        }
+        
+        function updateDeleteButtonState() {
+            const select = document.getElementById('session-select');
+            const deleteBtn = document.getElementById('delete-session-btn');
+            deleteBtn.disabled = !select.value;
+        }
+        
+        async function deleteCurrentSession() {
+            const select = document.getElementById('session-select');
+            const sessionId = select.value;
+            
+            if (!sessionId) {
+                alert('Please select a session to delete');
+                return;
+            }
+            
+            if (!confirm(`Are you sure you want to delete session "${sessionId}" and all its alerts?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/session/delete?session_id=${sessionId}`, {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`Deleted session ${sessionId}: ${result.alerts_deleted} alerts removed`);
+                    // Reset to "All Sessions"
+                    select.value = '';
+                    currentSessionId = null;
+                    loadSessions();
+                    loadData();
+                } else {
+                    alert('Failed to delete session: ' + (result.error || 'Unknown error'));
+                }
+            } catch (e) {
+                console.error('Failed to delete session:', e);
+                alert('Failed to delete session');
+            }
+        }
+        
+        async function deleteAllSessions() {
+            if (!confirm('Are you sure you want to delete ALL sessions and ALL alerts? This cannot be undone!')) {
+                return;
+            }
+            
+            if (!confirm('This will permanently delete all data. Are you absolutely sure?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/sessions/delete-all', {
+                    method: 'DELETE'
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`Deleted all data: ${result.alerts_deleted} alerts, ${result.sessions_deleted} sessions removed`);
+                    currentSessionId = null;
+                    loadSessions();
+                    loadData();
+                } else {
+                    alert('Failed to delete all sessions: ' + (result.error || 'Unknown error'));
+                }
+            } catch (e) {
+                console.error('Failed to delete all sessions:', e);
+                alert('Failed to delete all sessions');
             }
         }
         
@@ -612,6 +714,47 @@ def set_session():
         "session_id": session_id,
         "is_filtered": session_id is not None
     })
+
+
+@app.route('/api/session/delete', methods=['DELETE'])
+def delete_session():
+    """Delete a specific session and all its alerts."""
+    storage = get_storage()
+    if not storage:
+        return jsonify({"error": "Database not connected"}), 503
+    
+    session_id = request.args.get('session_id')
+    if not session_id:
+        return jsonify({"error": "session_id parameter required"}), 400
+    
+    try:
+        result = storage.delete_session(session_id)
+        
+        # If the deleted session was the current dashboard session, clear it
+        if get_dashboard_session_id() == session_id:
+            set_dashboard_session_id(None)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sessions/delete-all', methods=['DELETE'])
+def delete_all_sessions():
+    """Delete all sessions and all alerts."""
+    storage = get_storage()
+    if not storage:
+        return jsonify({"error": "Database not connected"}), 503
+    
+    try:
+        result = storage.delete_all_sessions()
+        
+        # Clear the current dashboard session
+        set_dashboard_session_id(None)
+        
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route('/api/attack-types')

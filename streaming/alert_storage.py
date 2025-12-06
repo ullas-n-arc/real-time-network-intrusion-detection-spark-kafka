@@ -568,6 +568,75 @@ class AlertStorage:
                 session['ended_at'] = session['ended_at'].isoformat()
         
         return session
+    
+    def delete_session(self, session_id: str) -> Dict[str, Any]:
+        """
+        Delete a session and all its associated alerts.
+        
+        Args:
+            session_id: Session ID to delete
+            
+        Returns:
+            Dictionary with deletion results
+        """
+        if not session_id:
+            return {"success": False, "error": "No session ID provided"}
+        
+        result = {
+            "session_id": session_id,
+            "alerts_deleted": 0,
+            "session_deleted": False,
+            "success": False
+        }
+        
+        try:
+            # Delete all alerts for this session
+            alerts_result = self.alerts_collection.delete_many({"session_id": session_id})
+            result["alerts_deleted"] = alerts_result.deleted_count
+            
+            # Delete the session document
+            session_result = self.sessions_collection.delete_one({"session_id": session_id})
+            result["session_deleted"] = session_result.deleted_count > 0
+            
+            result["success"] = True
+            logger.info(f"🗑️ Deleted session {session_id}: {result['alerts_deleted']} alerts removed")
+            
+        except Exception as e:
+            result["error"] = str(e)
+            logger.error(f"Failed to delete session {session_id}: {e}")
+        
+        return result
+    
+    def delete_all_sessions(self) -> Dict[str, Any]:
+        """
+        Delete all sessions and all alerts.
+        
+        Returns:
+            Dictionary with deletion results
+        """
+        result = {
+            "alerts_deleted": 0,
+            "sessions_deleted": 0,
+            "success": False
+        }
+        
+        try:
+            # Delete all alerts
+            alerts_result = self.alerts_collection.delete_many({})
+            result["alerts_deleted"] = alerts_result.deleted_count
+            
+            # Delete all sessions
+            sessions_result = self.sessions_collection.delete_many({})
+            result["sessions_deleted"] = sessions_result.deleted_count
+            
+            result["success"] = True
+            logger.info(f"🗑️ Deleted all data: {result['alerts_deleted']} alerts, {result['sessions_deleted']} sessions")
+            
+        except Exception as e:
+            result["error"] = str(e)
+            logger.error(f"Failed to delete all sessions: {e}")
+        
+        return result
 
 
 def main():

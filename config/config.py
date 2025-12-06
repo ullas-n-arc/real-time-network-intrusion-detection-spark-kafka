@@ -128,16 +128,23 @@ UNSW_ATTACK_TYPE_MAPPING = {
 # Streaming configuration
 STREAMING_CONFIG = {
     "checkpoint_dir": str(BASE_DIR / "checkpoints"),
-    "trigger_interval": "1 second",  # Faster micro-batch processing
+    "trigger_interval": "3 seconds",  # Increased to prevent batch falling behind
     "watermark_delay": "5 seconds",
 }
 
 # Alert thresholds
+# Severity classification (UNSW-NB15 focused):
+#   HIGH: Critical / Full Compromise (rare but dangerous)
+#   MEDIUM: Active Attacks but not full compromise (most alerts)
+#   LOW: Normal traffic only (not attacks)
 ALERT_CONFIG = {
     "prediction_threshold": 0.5,  # For binary classification
-    "high_severity_types": ["DDoS", "DoS", "Infiltration", "Heartbleed", "Exploits", "Backdoor", "Shellcode", "Worms"],
-    "medium_severity_types": ["BruteForce", "WebAttack", "Botnet", "Analysis", "Fuzzers", "Generic", "Reconnaissance"],
-    "low_severity_types": ["PortScan", "Normal", "Benign"],
+    # HIGH: Critical threats - full system compromise (rare)
+    "high_severity_types": ["Backdoor", "Shellcode", "Worms", "Heartbleed", "Infiltration"],
+    # MEDIUM: Active attacks - all attack types except HIGH (most alerts should be here)
+    "medium_severity_types": ["DoS", "DDoS", "Exploits", "Fuzzers", "Analysis", "Generic", "Reconnaissance", "BruteForce", "WebAttack", "Botnet", "PortScan"],
+    # LOW: Normal/Benign traffic only (not actual attacks)
+    "low_severity_types": ["Normal", "Benign"],
 }
 
 # Producer configuration
