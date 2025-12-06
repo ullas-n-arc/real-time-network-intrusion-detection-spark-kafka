@@ -1,6 +1,7 @@
 # Compiled class file
 *.class
-
+checkpoints/
+checkpoints/mongodb/*
 # Log file
 *.log
 

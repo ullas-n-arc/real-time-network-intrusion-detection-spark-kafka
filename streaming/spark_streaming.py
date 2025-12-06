@@ -31,12 +31,16 @@ from pyspark.ml.classification import (
     RandomForestClassificationModel,
     GBTClassificationModel
 )
-from pyspark.ml.feature import VectorAssembler, StandardScalerModel
+from pyspark.ml.feature import VectorAssembler
 
 from config import (
     KAFKA_CONFIG, SPARK_CONFIG, STREAMING_CONFIG,
     MODEL_PATHS, FEATURE_CONFIG, UNSW_FEATURE_CONFIG, ATTACK_TYPE_MAPPING,
-    ALERT_CONFIG, MONGODB_CONFIG, SCALER_PATHS, DATASET_MODEL_PATHS
+    ALERT_CONFIG, MONGODB_CONFIG
+)
+
+from streaming.alert_storage import (
+    start_new_session, get_current_session_id, clear_session
 )
 
 # Try to import UNSW attack mapping
@@ -56,16 +60,39 @@ logger = logging.getLogger(__name__)
 class SparkStreamingProcessor:
     """
     Real-time network intrusion detection using Spark Structured Streaming.
+    
+    For UNSW dataset: Uses two-stage detection
+        1. GBT binary model to detect attack vs normal (87% accuracy)
+        2. Only if attack detected, apply RF multiclass for attack type (67% accuracy)
+    
+    For CIC-IDS dataset: Uses RF models for both stages
     """
 
-    def __init__(self, data_source="cicids2017"):
-        """Initialize the streaming processor."""
+    def __init__(self, data_source="cicids2017", session_id: str = None):
+        """
+        Initialize the streaming processor.
+        
+        Args:
+            data_source: Dataset to use for model selection
+            session_id: Optional session ID. If not provided, a new session will be created.
+        """
         self.spark = None
         self.binary_model = None
         self.multiclass_model = None
+        self.gbt_binary_model = None  # GBT for UNSW binary detection
         self.schema = None
         self.scaler_model = None
         self.data_source = data_source
+        
+        # Session management
+        if session_id:
+            from streaming.alert_storage import set_current_session_id
+            set_current_session_id(session_id)
+            self.session_id = session_id
+        else:
+            self.session_id = start_new_session()
+        
+        logger.info(f"📍 Streaming session ID: {self.session_id}")
 
     def create_spark_session(self) -> SparkSession:
         """Create and configure Spark session for streaming with optimized settings."""
@@ -119,35 +146,39 @@ class SparkStreamingProcessor:
         return self.spark
 
     def define_schema(self) -> StructType:
-        """Define the schema for incoming network traffic data."""
+        """
+        Define the schema for incoming network traffic data.
+        
+        Note: Labels are NOT included - this is realistic for production
+        where we're detecting unknown attacks in real-time.
+        """
         fields = []
 
         # Choose features based on data source
         if self.data_source == "unsw":
             feature_list = UNSW_FEATURE_CONFIG["numeric_features"]
-            # Add id field first (sent by producer but not used for prediction)
+            # Add id field first (optional, for tracking)
             fields.append(StructField("id", DoubleType(), True))
         else:
             feature_list = FEATURE_CONFIG["numeric_features"]
 
-        # Numeric feature fields
+        # Numeric feature fields (the actual network traffic features)
         for feature in feature_list:
             fields.append(StructField(feature.strip(), DoubleType(), True))
 
-        # Metadata fields based on data source
+        # Metadata fields based on data source (NO LABELS - realistic scenario)
         if self.data_source == "unsw":
             fields.extend([
-                StructField("attack_cat", StringType(), True),
-                StructField("label", DoubleType(), True),  # Producer sends as float
+                # Categorical features (for context, not prediction)
                 StructField("proto", StringType(), True),
                 StructField("service", StringType(), True),
                 StructField("state", StringType(), True),
+                # Metadata
                 StructField("timestamp", StringType(), True),
                 StructField("producer_id", IntegerType(), True),
             ])
         else:
             fields.extend([
-                StructField("Label", StringType(), True),
                 StructField("Source IP", StringType(), True),
                 StructField("Destination IP", StringType(), True),
                 StructField("timestamp", StringType(), True),
@@ -162,50 +193,51 @@ class SparkStreamingProcessor:
         logger.info("Loading ML models...")
 
         try:
-            # Load binary model based on data source
-            model_path = DATASET_MODEL_PATHS.get(self.data_source, MODEL_PATHS["rf_binary"])
-            if os.path.exists(model_path):
-                self.binary_model = RandomForestClassificationModel.load(model_path)
-                logger.info(f"✅ Loaded binary model: {model_path}")
-            else:
-                # Fallback to default
-                if os.path.exists(MODEL_PATHS["rf_binary"]):
-                    self.binary_model = RandomForestClassificationModel.load(MODEL_PATHS["rf_binary"])
-                    logger.info(f"✅ Loaded fallback binary model: {MODEL_PATHS['rf_binary']}")
-                else:
-                    logger.warning(f"⚠️ Binary model not found at {model_path}")
-
-            # Multiclass classifier
             if self.data_source == "unsw":
-                # Load UNSW multiclass model
-                unsw_multiclass_path = MODEL_PATHS.get("unsw_multiclass", "")
-                if os.path.exists(unsw_multiclass_path):
-                    self.multiclass_model = RandomForestClassificationModel.load(unsw_multiclass_path)
-                    logger.info(f"✅ Loaded UNSW multiclass model: {unsw_multiclass_path}")
+                # UNSW: Load GBT binary model (87% accuracy, 94% AUC-ROC)
+                gbt_binary_path = MODEL_PATHS.get("unsw_gbt_binary", "")
+                if os.path.exists(gbt_binary_path):
+                    self.gbt_binary_model = GBTClassificationModel.load(gbt_binary_path)
+                    logger.info(f"✅ Loaded UNSW GBT binary classifier: {gbt_binary_path}")
                 else:
-                    logger.warning(f"⚠️ UNSW multiclass model not found at {unsw_multiclass_path}")
-            else:
-                # CIC-IDS multiclass
-                if os.path.exists(MODEL_PATHS.get("rf_multiclass_improved", "")):
-                    self.multiclass_model = RandomForestClassificationModel.load(
-                        MODEL_PATHS["rf_multiclass_improved"]
-                    )
-                    logger.info("✅ Loaded improved multiclass model")
-                elif os.path.exists(MODEL_PATHS["rf_multiclass"]):
-                    self.multiclass_model = RandomForestClassificationModel.load(
-                        MODEL_PATHS["rf_multiclass"]
-                    )
-                    logger.info(f"✅ Loaded multiclass model: {MODEL_PATHS['rf_multiclass']}")
-                else:
-                    logger.warning("⚠️ Multiclass model not found")
+                    logger.warning(f"⚠️ UNSW GBT binary classifier not found at {gbt_binary_path}")
+                    # Fallback to RF binary
+                    rf_binary_path = MODEL_PATHS.get("unsw_rf_binary", "")
+                    if os.path.exists(rf_binary_path):
+                        self.binary_model = RandomForestClassificationModel.load(rf_binary_path)
+                        logger.info(f"✅ Loaded UNSW RF binary classifier as fallback: {rf_binary_path}")
 
-            # Load scaler model for the data source
-            scaler_path = SCALER_PATHS.get(self.data_source)
-            if scaler_path and os.path.exists(scaler_path):
-                self.scaler_model = StandardScalerModel.load(scaler_path)
-                logger.info(f"✅ Loaded scaler model: {scaler_path}")
+                # Load UNSW multiclass model (for attack type classification)
+                multiclass_path = MODEL_PATHS.get("unsw_multiclass", "")
+                if os.path.exists(multiclass_path):
+                    self.multiclass_model = RandomForestClassificationModel.load(multiclass_path)
+                    logger.info(f"✅ Loaded UNSW multiclass classifier: {multiclass_path}")
+                else:
+                    logger.warning(f"⚠️ UNSW multiclass classifier not found at {multiclass_path}")
+                    
             else:
-                logger.warning(f"⚠️ Scaler model not found for data source: {self.data_source}")
+                # CIC-IDS: Load RF binary classifier
+                binary_path = MODEL_PATHS["rf_binary"]
+                if os.path.exists(binary_path):
+                    self.binary_model = RandomForestClassificationModel.load(binary_path)
+                    logger.info(f"✅ Loaded binary classifier: {binary_path}")
+                else:
+                    logger.warning(f"⚠️ Binary classifier not found at {binary_path}")
+
+                # CIC-IDS multiclass - prefer improved model
+                improved_path = MODEL_PATHS.get("rf_multiclass_improved", "")
+                if os.path.exists(improved_path):
+                    self.multiclass_model = RandomForestClassificationModel.load(improved_path)
+                    logger.info(f"✅ Loaded improved multiclass classifier: {improved_path}")
+                elif os.path.exists(MODEL_PATHS["rf_multiclass"]):
+                    self.multiclass_model = RandomForestClassificationModel.load(MODEL_PATHS["rf_multiclass"])
+                    logger.info(f"✅ Loaded multiclass classifier: {MODEL_PATHS['rf_multiclass']}")
+                else:
+                    logger.warning("⚠️ Multiclass classifier not found")
+
+            # Scaler model is not needed - models were trained without scaling
+            self.scaler_model = None
+            logger.info("ℹ️ Scaler model not required for this configuration")
 
         except Exception as e:
             logger.error(f"❌ Error loading models: {e}")
@@ -300,59 +332,98 @@ class SparkStreamingProcessor:
         if available_features:
             assembler = VectorAssembler(
                 inputCols=available_features,
-                outputCol="features_raw",
+                outputCol="features",
                 handleInvalid="keep"  # "keep" is faster than "skip"
             )
             df = assembler.transform(df)
 
-            # Apply scaler if available
-            if self.scaler_model:
-                input_col = self.scaler_model.getInputCol()
-                
-                # Ensure input column matches what scaler expects
-                if "features_raw" in df.columns and input_col != "features_raw":
-                    df = df.withColumnRenamed("features_raw", input_col)
-                
-                df = self.scaler_model.transform(df)
-            else:
-                # No scaler - rename features_raw to features for model
-                df = df.withColumnRenamed("features_raw", "features")
-
         return df
 
     def apply_model(self, df: DataFrame) -> DataFrame:
-        """Apply ML models for prediction."""
+        """
+        Apply ML models for prediction.
+        
+        For UNSW: Two-stage detection
+            Stage 1: GBT binary model (attack vs normal)
+            Stage 2: Only if attack, apply RF multiclass for attack type
+        
+        For CIC-IDS: Apply both binary and multiclass to all records
+        """
         result_df = df
 
-        # Binary classification
-        if self.binary_model:
+        # Stage 1: Binary classification (attack vs benign)
+        if self.data_source == "unsw" and self.gbt_binary_model:
+            # UNSW: Use GBT binary model (87% accuracy, 94% AUC-ROC)
             try:
-                features_col = "features" if "features" in result_df.columns else "features_scaled"
-                self.binary_model.setFeaturesCol(features_col)
-                self.binary_model.setPredictionCol("binary_prediction")
-                result_df = self.binary_model.transform(result_df)
+                self.gbt_binary_model.setFeaturesCol("features")
+                self.gbt_binary_model.setPredictionCol("binary_prediction")
+                result_df = self.gbt_binary_model.transform(result_df)
                 # Drop intermediate columns to reduce memory
                 if "rawPrediction" in result_df.columns:
                     result_df = result_df.drop("rawPrediction")
                 if "probability" in result_df.columns:
                     result_df = result_df.drop("probability")
+                logger.debug("✅ UNSW GBT binary classification applied")
+            except Exception as e:
+                logger.warning(f"GBT binary model prediction failed: {e}")
+                result_df = result_df.withColumn("binary_prediction", F.lit(-1.0))
+        elif self.binary_model:
+            # CIC-IDS or fallback: Use RF binary model
+            try:
+                self.binary_model.setFeaturesCol("features")
+                self.binary_model.setPredictionCol("binary_prediction")
+                result_df = self.binary_model.transform(result_df)
+                if "rawPrediction" in result_df.columns:
+                    result_df = result_df.drop("rawPrediction")
+                if "probability" in result_df.columns:
+                    result_df = result_df.drop("probability")
+                logger.debug("✅ Binary classification applied")
             except Exception as e:
                 logger.warning(f"Binary model prediction failed: {e}")
                 result_df = result_df.withColumn("binary_prediction", F.lit(-1.0))
         else:
             result_df = result_df.withColumn("binary_prediction", F.lit(-1.0))
 
-        # Multiclass classification (for all datasets including UNSW)
+        # Stage 2: Multiclass classification (attack type)
+        # For UNSW: Only apply to records predicted as attacks (cascaded approach)
+        # For CIC-IDS: Apply to all records
         if self.multiclass_model:
             try:
-                features_col = "features" if "features" in result_df.columns else "features_scaled"
-                self.multiclass_model.setFeaturesCol(features_col)
-                self.multiclass_model.setPredictionCol("multiclass_prediction")
-                result_df = self.multiclass_model.transform(result_df)
-                if "rawPrediction" in result_df.columns:
-                    result_df = result_df.drop("rawPrediction")
-                if "probability" in result_df.columns:
-                    result_df = result_df.drop("probability")
+                if self.data_source == "unsw":
+                    # UNSW: Cascaded approach - only classify attacks
+                    # This saves compute resources by not classifying normal traffic
+                    self.multiclass_model.setFeaturesCol("features")
+                    self.multiclass_model.setPredictionCol("multiclass_raw")
+                    
+                    # Apply multiclass to all but only use result for attacks
+                    result_df = self.multiclass_model.transform(result_df)
+                    
+                    # Set multiclass_prediction to 0 (Normal) if binary says normal
+                    # Otherwise use the multiclass model prediction
+                    result_df = result_df.withColumn(
+                        "multiclass_prediction",
+                        F.when(F.col("binary_prediction") == 0.0, F.lit(0.0))  # Normal
+                         .otherwise(F.col("multiclass_raw"))  # Use multiclass prediction for attacks
+                    )
+                    
+                    # Drop intermediate columns
+                    result_df = result_df.drop("multiclass_raw")
+                    if "rawPrediction" in result_df.columns:
+                        result_df = result_df.drop("rawPrediction")
+                    if "probability" in result_df.columns:
+                        result_df = result_df.drop("probability")
+                    
+                    logger.debug("✅ UNSW cascaded multiclass classification applied")
+                else:
+                    # CIC-IDS: Apply multiclass to all records
+                    self.multiclass_model.setFeaturesCol("features")
+                    self.multiclass_model.setPredictionCol("multiclass_prediction")
+                    result_df = self.multiclass_model.transform(result_df)
+                    if "rawPrediction" in result_df.columns:
+                        result_df = result_df.drop("rawPrediction")
+                    if "probability" in result_df.columns:
+                        result_df = result_df.drop("probability")
+                    logger.debug("✅ Multiclass classification applied")
             except Exception as e:
                 logger.warning(f"Multiclass model prediction failed: {e}")
                 result_df = result_df.withColumn("multiclass_prediction", F.lit(-1.0))
@@ -362,7 +433,11 @@ class SparkStreamingProcessor:
         return result_df
 
     def enrich_predictions(self, df: DataFrame) -> DataFrame:
-        """Add attack type labels and severity to predictions."""
+        """
+        Add attack type labels and severity to predictions.
+        
+        Attack type is derived purely from model predictions (no ground truth labels).
+        """
 
         # Choose attack mapping based on data source
         if self.data_source == "unsw":
@@ -370,15 +445,16 @@ class SparkStreamingProcessor:
         else:
             attack_mapping = ATTACK_TYPE_MAPPING
 
-        # Build CASE expression for attack type mapping
-        attack_type_col = F.lit("Unknown")
+        # Build CASE expression for attack type mapping from multiclass prediction
+        predicted_attack_type = F.lit("Unknown")
         for k, v in attack_mapping.items():
-            attack_type_col = F.when(
+            predicted_attack_type = F.when(
                 F.col("multiclass_prediction") == float(k),
                 F.lit(v)
-            ).otherwise(attack_type_col)
+            ).otherwise(predicted_attack_type)
 
-        df = df.withColumn("attack_type", attack_type_col)
+        # Attack type comes purely from model prediction (realistic scenario)
+        df = df.withColumn("attack_type", predicted_attack_type)
 
         # Add is_attack flag from binary prediction
         df = df.withColumn(
@@ -427,6 +503,9 @@ class SparkStreamingProcessor:
 
     def write_alerts_to_mongodb(self, df: DataFrame):
         """Write alert records to MongoDB using foreachBatch."""
+        
+        # Capture session_id for use in the closure
+        session_id = self.session_id
 
         def write_batch_to_mongo(batch_df, batch_id):
             """Write a micro-batch to MongoDB."""
@@ -448,13 +527,14 @@ class SparkStreamingProcessor:
                 collection = db[MONGODB_CONFIG["alerts_collection"]]
 
                 # Select only serializable columns for MongoDB (exclude Vector types)
+                # No ground truth labels - only model predictions (realistic)
                 mongo_columns = [
                     "is_attack", "attack_type", "severity", 
                     "binary_prediction", "multiclass_prediction",
                     "processed_at", "kafka_timestamp"
                 ]
-                # Add optional source columns if present
-                for col in ["attack_cat", "label", "proto", "service", "state"]:
+                # Add optional context columns if present (no labels)
+                for col in ["proto", "service", "state", "Source_IP", "Destination_IP"]:
                     if col in alerts_df.columns:
                         mongo_columns.append(col)
                 
@@ -466,6 +546,7 @@ class SparkStreamingProcessor:
                 for record in records:
                     record["batch_id"] = batch_id
                     record["inserted_at"] = datetime.now()
+                    record["session_id"] = session_id  # Add session ID to each record
                     # Convert any remaining non-serializable types
                     for key, val in list(record.items()):
                         if hasattr(val, 'item'):  # numpy types
@@ -475,7 +556,7 @@ class SparkStreamingProcessor:
 
                 if records:
                     collection.insert_many(records)
-                    logger.info(f"Batch {batch_id}: Inserted {len(records)} alerts to MongoDB")
+                    logger.info(f"Batch {batch_id}: Inserted {len(records)} alerts to MongoDB (session: {session_id})")
 
                 client.close()
 
@@ -530,13 +611,36 @@ class SparkStreamingProcessor:
         """
         logger.info("=" * 60)
         logger.info("Starting Real-Time Network Intrusion Detection")
+        logger.info(f"📍 Session ID: {self.session_id}")
         logger.info("=" * 60)
+
+        # Register session in MongoDB if using mongodb output
+        if output_mode in ["mongodb", "all"]:
+            try:
+                from streaming.alert_storage import AlertStorage
+                storage = AlertStorage(session_id=self.session_id)
+                if storage.connect():
+                    storage.register_session(
+                        self.session_id, 
+                        {"data_source": data_source, "output_mode": output_mode}
+                    )
+                    storage.close()
+            except Exception as e:
+                logger.warning(f"Could not register session: {e}")
 
         # Initialize
         self.data_source = data_source
         self.create_spark_session()
         self.define_schema()
         self.load_models()
+        
+        # Log the detection mode
+        if self.data_source == "unsw":
+            logger.info("🔍 UNSW Mode: Two-Stage Cascaded Detection")
+            logger.info("   Stage 1: GBT Binary Model (87% accuracy)")
+            logger.info("   Stage 2: RF Multiclass (only if attack detected)")
+        else:
+            logger.info(f"🔍 {data_source.upper()} Mode: Parallel Detection")
 
         # Build streaming pipeline
         kafka_df = self.read_from_kafka()
@@ -571,6 +675,8 @@ class SparkStreamingProcessor:
 
         logger.info("=" * 60)
         logger.info("🚀 Streaming pipeline running...")
+        logger.info(f"📍 Session ID: {self.session_id}")
+        logger.info("📊 View dashboard: python dashboard/app.py")
         logger.info("Press Ctrl+C to stop")
         logger.info("=" * 60)
 
@@ -583,6 +689,18 @@ class SparkStreamingProcessor:
             for query in queries:
                 query.stop()
         finally:
+            # End session in MongoDB
+            if output_mode in ["mongodb", "all"]:
+                try:
+                    from streaming.alert_storage import AlertStorage
+                    storage = AlertStorage(session_id=self.session_id)
+                    if storage.connect():
+                        storage.end_session(self.session_id)
+                        storage.close()
+                except Exception as e:
+                    logger.warning(f"Could not end session: {e}")
+            
+            clear_session()
             self.spark.stop()
             logger.info("✅ Spark session stopped")
 
@@ -607,10 +725,16 @@ def main():
         choices=["cicids2017", "cicids2018", "unsw"],
         help="Dataset to determine which scaler to use",
     )
+    parser.add_argument(
+        "--session-id",
+        type=str,
+        default=None,
+        help="Optional session ID (auto-generated if not provided)",
+    )
 
     args = parser.parse_args()
 
-    processor = SparkStreamingProcessor(data_source=args.data_source)
+    processor = SparkStreamingProcessor(data_source=args.data_source, session_id=args.session_id)
     processor.run(output_mode=args.output, data_source=args.data_source)
 
 

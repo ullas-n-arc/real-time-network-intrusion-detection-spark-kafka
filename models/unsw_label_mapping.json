@@ -1,0 +1,27 @@
+{
+  "attack_mapping": {
+    "Normal": 0,
+    "Fuzzers": 1,
+    "Analysis": 2,
+    "Backdoors": 3,
+    "Backdoor": 3,
+    "DoS": 4,
+    "Exploits": 5,
+    "Generic": 6,
+    "Reconnaissance": 7,
+    "Shellcode": 8,
+    "Worms": 9
+  },
+  "reverse_mapping": {
+    "0": "Normal",
+    "1": "Fuzzers",
+    "2": "Analysis",
+    "3": "Backdoor",
+    "4": "DoS",
+    "5": "Exploits",
+    "6": "Generic",
+    "7": "Reconnaissance",
+    "8": "Shellcode",
+    "9": "Worms"
+  }
+}

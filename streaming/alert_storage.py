@@ -2,9 +2,11 @@
 MongoDB Alert Storage Module for Network Intrusion Detection System
 
 Handles storing and retrieving intrusion alerts from MongoDB.
+Supports session-based filtering for isolating alerts per streaming session.
 """
 
 import logging
+import uuid
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
@@ -24,14 +26,65 @@ from config import MONGODB_CONFIG, ATTACK_TYPE_MAPPING
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Global session management
+_current_session_id: Optional[str] = None
+_session_start_time: Optional[datetime] = None
+
+
+def generate_session_id() -> str:
+    """Generate a new unique session ID."""
+    return str(uuid.uuid4())[:8]
+
+
+def get_current_session_id() -> Optional[str]:
+    """Get the current active session ID."""
+    global _current_session_id
+    return _current_session_id
+
+
+def set_current_session_id(session_id: str) -> None:
+    """Set the current active session ID."""
+    global _current_session_id, _session_start_time
+    _current_session_id = session_id
+    _session_start_time = datetime.now()
+    logger.info(f"📍 Session ID set to: {session_id}")
+
+
+def get_session_start_time() -> Optional[datetime]:
+    """Get the start time of the current session."""
+    global _session_start_time
+    return _session_start_time
+
+
+def start_new_session() -> str:
+    """Start a new session and return the session ID."""
+    session_id = generate_session_id()
+    set_current_session_id(session_id)
+    return session_id
+
+
+def clear_session() -> None:
+    """Clear the current session."""
+    global _current_session_id, _session_start_time
+    _current_session_id = None
+    _session_start_time = None
+    logger.info("📍 Session cleared")
+
 
 class AlertStorage:
     """
     MongoDB storage handler for intrusion detection alerts.
+    Supports session-based filtering to isolate alerts per streaming session.
     """
     
-    def __init__(self):
-        """Initialize MongoDB connection."""
+    def __init__(self, session_id: Optional[str] = None):
+        """
+        Initialize MongoDB connection.
+        
+        Args:
+            session_id: Optional session ID for filtering alerts. 
+                       If not provided, uses the global current session.
+        """
         if not PYMONGO_AVAILABLE:
             raise ImportError("pymongo not installed. Run: pip install pymongo")
         
@@ -39,6 +92,18 @@ class AlertStorage:
         self.db = None
         self.alerts_collection = None
         self.stats_collection = None
+        self.sessions_collection = None
+        self._session_id = session_id
+        
+    @property
+    def session_id(self) -> Optional[str]:
+        """Get the session ID, falling back to global session."""
+        return self._session_id or get_current_session_id()
+    
+    @session_id.setter
+    def session_id(self, value: str):
+        """Set the session ID for this storage instance."""
+        self._session_id = value
         
     def connect(self) -> bool:
         """Establish connection to MongoDB."""
@@ -62,6 +127,7 @@ class AlertStorage:
             self.db = self.client[MONGODB_CONFIG['database']]
             self.alerts_collection = self.db[MONGODB_CONFIG['alerts_collection']]
             self.stats_collection = self.db['alert_statistics']
+            self.sessions_collection = self.db['sessions']
             
             # Create indexes for efficient queries
             self._create_indexes()
@@ -83,9 +149,18 @@ class AlertStorage:
         self.alerts_collection.create_index("attack_type")
         self.alerts_collection.create_index("severity")
         
+        # Index on session_id for session-based filtering
+        self.alerts_collection.create_index("session_id")
+        
         # Compound index for common queries
         self.alerts_collection.create_index([
             ("severity", 1),
+            ("processed_at", DESCENDING)
+        ])
+        
+        # Compound index for session-based queries
+        self.alerts_collection.create_index([
+            ("session_id", 1),
             ("processed_at", DESCENDING)
         ])
         
@@ -97,26 +172,30 @@ class AlertStorage:
             self.client.close()
             logger.info("MongoDB connection closed")
     
-    def insert_alert(self, alert: Dict[str, Any]) -> str:
+    def insert_alert(self, alert: Dict[str, Any], session_id: Optional[str] = None) -> str:
         """
         Insert a single alert into MongoDB.
         
         Args:
             alert: Dictionary containing alert data
+            session_id: Optional session ID (uses instance/global session if not provided)
             
         Returns:
             Inserted document ID
         """
         alert['inserted_at'] = datetime.now()
+        # Add session ID to alert
+        alert['session_id'] = session_id or self.session_id
         result = self.alerts_collection.insert_one(alert)
         return str(result.inserted_id)
     
-    def insert_alerts_batch(self, alerts: List[Dict[str, Any]]) -> List[str]:
+    def insert_alerts_batch(self, alerts: List[Dict[str, Any]], session_id: Optional[str] = None) -> List[str]:
         """
         Insert multiple alerts into MongoDB.
         
         Args:
             alerts: List of alert dictionaries
+            session_id: Optional session ID (uses instance/global session if not provided)
             
         Returns:
             List of inserted document IDs
@@ -124,8 +203,10 @@ class AlertStorage:
         if not alerts:
             return []
         
+        sid = session_id or self.session_id
         for alert in alerts:
             alert['inserted_at'] = datetime.now()
+            alert['session_id'] = sid
         
         result = self.alerts_collection.insert_many(alerts)
         return [str(id) for id in result.inserted_ids]
@@ -134,7 +215,9 @@ class AlertStorage:
         self,
         limit: int = 100,
         severity: Optional[str] = None,
-        attack_type: Optional[str] = None
+        attack_type: Optional[str] = None,
+        session_id: Optional[str] = None,
+        session_only: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Get recent alerts with optional filtering.
@@ -143,11 +226,21 @@ class AlertStorage:
             limit: Maximum number of alerts to return
             severity: Filter by severity level
             attack_type: Filter by attack type
+            session_id: Filter by specific session ID
+            session_only: If True, only return alerts from current session
             
         Returns:
             List of alert documents
         """
         query = {}
+        
+        # Session filtering
+        if session_only:
+            sid = session_id or self.session_id
+            if sid:
+                query['session_id'] = sid
+        elif session_id:
+            query['session_id'] = session_id
         
         if severity:
             query['severity'] = severity
@@ -164,7 +257,9 @@ class AlertStorage:
     def get_alerts_in_timerange(
         self,
         start_time: datetime,
-        end_time: datetime = None
+        end_time: datetime = None,
+        session_id: Optional[str] = None,
+        session_only: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Get alerts within a time range.
@@ -172,6 +267,8 @@ class AlertStorage:
         Args:
             start_time: Start of time range
             end_time: End of time range (defaults to now)
+            session_id: Filter by specific session ID
+            session_only: If True, only return alerts from current session
             
         Returns:
             List of alert documents
@@ -186,22 +283,47 @@ class AlertStorage:
             }
         }
         
+        # Session filtering
+        if session_only:
+            sid = session_id or self.session_id
+            if sid:
+                query['session_id'] = sid
+        elif session_id:
+            query['session_id'] = session_id
+        
         return list(self.alerts_collection.find(query).sort("processed_at", DESCENDING))
     
-    def get_alert_statistics(self, hours: int = 24) -> Dict[str, Any]:
+    def get_alert_statistics(
+        self,
+        hours: int = 24,
+        session_id: Optional[str] = None,
+        session_only: bool = True
+    ) -> Dict[str, Any]:
         """
         Get aggregated statistics for recent alerts.
         
         Args:
             hours: Number of hours to look back
+            session_id: Filter by specific session ID
+            session_only: If True, only return stats from current session
             
         Returns:
             Dictionary with statistics
         """
         since = datetime.now() - timedelta(hours=hours)
         
+        match_query = {"processed_at": {"$gte": since}}
+        
+        # Session filtering
+        if session_only:
+            sid = session_id or self.session_id
+            if sid:
+                match_query['session_id'] = sid
+        elif session_id:
+            match_query['session_id'] = session_id
+        
         pipeline = [
-            {"$match": {"processed_at": {"$gte": since}}},
+            {"$match": match_query},
             {"$group": {
                 "_id": None,
                 "total_alerts": {"$sum": 1},
@@ -232,7 +354,7 @@ class AlertStorage:
         
         # Attack type breakdown
         type_pipeline = [
-            {"$match": {"processed_at": {"$gte": since}}},
+            {"$match": match_query},
             {"$group": {
                 "_id": "$attack_type",
                 "count": {"$sum": 1}
@@ -245,13 +367,16 @@ class AlertStorage:
         
         stats['time_period_hours'] = hours
         stats['since'] = since.isoformat()
+        stats['session_id'] = session_id or self.session_id
         
         return stats
     
     def get_attack_timeline(
         self,
         hours: int = 24,
-        interval_minutes: int = 60
+        interval_minutes: int = 60,
+        session_id: Optional[str] = None,
+        session_only: bool = True
     ) -> List[Dict[str, Any]]:
         """
         Get attack counts grouped by time intervals.
@@ -259,14 +384,26 @@ class AlertStorage:
         Args:
             hours: Number of hours to look back
             interval_minutes: Size of each interval
+            session_id: Filter by specific session ID
+            session_only: If True, only return timeline from current session
             
         Returns:
             List of time buckets with counts
         """
         since = datetime.now() - timedelta(hours=hours)
         
+        match_query = {"processed_at": {"$gte": since}}
+        
+        # Session filtering
+        if session_only:
+            sid = session_id or self.session_id
+            if sid:
+                match_query['session_id'] = sid
+        elif session_id:
+            match_query['session_id'] = session_id
+        
         pipeline = [
-            {"$match": {"processed_at": {"$gte": since}}},
+            {"$match": match_query},
             {"$group": {
                 "_id": {
                     "$dateTrunc": {
@@ -308,17 +445,147 @@ class AlertStorage:
         result = self.alerts_collection.delete_many({"processed_at": {"$lt": cutoff}})
         logger.info(f"Deleted {result.deleted_count} alerts older than {days} days")
         return result.deleted_count
+    
+    def clear_session_alerts(self, session_id: Optional[str] = None) -> int:
+        """
+        Delete all alerts for a specific session.
+        
+        Args:
+            session_id: Session ID to clear. Uses current session if not provided.
+            
+        Returns:
+            Number of deleted documents
+        """
+        sid = session_id or self.session_id
+        if not sid:
+            logger.warning("No session ID provided for clearing alerts")
+            return 0
+        
+        result = self.alerts_collection.delete_many({"session_id": sid})
+        logger.info(f"Deleted {result.deleted_count} alerts for session {sid}")
+        return result.deleted_count
+    
+    def register_session(self, session_id: str, metadata: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Register a new session in the sessions collection.
+        
+        Args:
+            session_id: Unique session identifier
+            metadata: Optional metadata about the session (data source, etc.)
+            
+        Returns:
+            Inserted session document ID
+        """
+        session_doc = {
+            "session_id": session_id,
+            "started_at": datetime.now(),
+            "status": "active",
+            "metadata": metadata or {}
+        }
+        result = self.sessions_collection.insert_one(session_doc)
+        logger.info(f"📍 Registered session: {session_id}")
+        return str(result.inserted_id)
+    
+    def end_session(self, session_id: Optional[str] = None) -> bool:
+        """
+        Mark a session as ended.
+        
+        Args:
+            session_id: Session to end. Uses current session if not provided.
+            
+        Returns:
+            True if session was found and updated
+        """
+        sid = session_id or self.session_id
+        if not sid:
+            return False
+        
+        result = self.sessions_collection.update_one(
+            {"session_id": sid},
+            {
+                "$set": {
+                    "status": "ended",
+                    "ended_at": datetime.now()
+                }
+            }
+        )
+        
+        if result.modified_count > 0:
+            logger.info(f"📍 Session ended: {sid}")
+            return True
+        return False
+    
+    def get_sessions(self, limit: int = 10, active_only: bool = False) -> List[Dict[str, Any]]:
+        """
+        Get list of recent sessions.
+        
+        Args:
+            limit: Maximum number of sessions to return
+            active_only: Only return active sessions
+            
+        Returns:
+            List of session documents
+        """
+        query = {}
+        if active_only:
+            query["status"] = "active"
+        
+        cursor = self.sessions_collection.find(query) \
+            .sort("started_at", DESCENDING) \
+            .limit(limit)
+        
+        sessions = []
+        for session in cursor:
+            session['_id'] = str(session['_id'])
+            if 'started_at' in session and isinstance(session['started_at'], datetime):
+                session['started_at'] = session['started_at'].isoformat()
+            if 'ended_at' in session and isinstance(session['ended_at'], datetime):
+                session['ended_at'] = session['ended_at'].isoformat()
+            sessions.append(session)
+        
+        return sessions
+    
+    def get_session_info(self, session_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get information about a specific session.
+        
+        Args:
+            session_id: Session to get info for. Uses current session if not provided.
+            
+        Returns:
+            Session document or None
+        """
+        sid = session_id or self.session_id
+        if not sid:
+            return None
+        
+        session = self.sessions_collection.find_one({"session_id": sid})
+        if session:
+            session['_id'] = str(session['_id'])
+            if 'started_at' in session and isinstance(session['started_at'], datetime):
+                session['started_at'] = session['started_at'].isoformat()
+            if 'ended_at' in session and isinstance(session['ended_at'], datetime):
+                session['ended_at'] = session['ended_at'].isoformat()
+        
+        return session
 
 
 def main():
     """Test MongoDB connection and operations."""
+    # Start a new session for testing
+    session_id = start_new_session()
+    print(f"Started test session: {session_id}")
+    
     storage = AlertStorage()
     
     if not storage.connect():
         print("Failed to connect to MongoDB")
         return
     
-    # Insert test alert
+    # Register the session
+    storage.register_session(session_id, {"data_source": "test"})
+    
+    # Insert test alert (will automatically use current session)
     test_alert = {
         "is_attack": True,
         "attack_type": "DDoS",
@@ -331,14 +598,18 @@ def main():
     alert_id = storage.insert_alert(test_alert)
     print(f"Inserted test alert: {alert_id}")
     
-    # Get statistics
+    # Get statistics (will only show current session alerts)
     stats = storage.get_alert_statistics(hours=1)
-    print(f"\nAlert Statistics (last 1 hour):")
+    print(f"\nAlert Statistics (session {session_id}, last 1 hour):")
     print(f"  Total alerts: {stats['total_alerts']}")
     print(f"  High severity: {stats['high_severity']}")
     print(f"  By type: {stats['by_attack_type']}")
     
+    # End session
+    storage.end_session()
+    
     storage.close()
+    clear_session()
 
 
 if __name__ == "__main__":

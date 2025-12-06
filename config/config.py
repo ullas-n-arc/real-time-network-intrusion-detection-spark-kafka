@@ -47,7 +47,11 @@ MODEL_PATHS = {
     "gbt_binary": str(MODELS_DIR / "gbt_binary_classifier"),
     "rf_multiclass": str(MODELS_DIR / "rf_multiclass_classifier"),
     "rf_multiclass_improved": str(MODELS_DIR / "rf_multiclass_improved"),
+    # UNSW-NB15 models
+    "unsw_gbt_binary": str(MODELS_DIR / "unsw_gbt_binary_classifier"),
+    "unsw_rf_binary": str(MODELS_DIR / "unsw_rf_binary_classifier"),
     "unsw_multiclass": str(MODELS_DIR / "unsw_rf_multiclass_classifier"),
+    "unsw_scaler": str(MODELS_DIR / "unsw_scaler"),
 }
 
 # Feature configuration - these should match your training pipeline
@@ -107,16 +111,18 @@ ATTACK_TYPE_MAPPING = {
 }
 
 # UNSW-NB15 Attack type mapping (from multiclass model)
+# Matches ATTACK_MAPPING in unsw_model_training.ipynb
 UNSW_ATTACK_TYPE_MAPPING = {
     0: "Normal",
-    1: "Exploits",
-    2: "Fuzzers",
-    3: "DoS",
-    4: "Reconnaissance",
-    5: "Analysis",
-    6: "Backdoor",
-    7: "Shellcode",
-    8: "Worms",
+    1: "Fuzzers",
+    2: "Analysis",
+    3: "Backdoor",
+    4: "DoS",
+    5: "Exploits",
+    6: "Generic",
+    7: "Reconnaissance",
+    8: "Shellcode",
+    9: "Worms",
 }
 
 # Streaming configuration
@@ -130,8 +136,8 @@ STREAMING_CONFIG = {
 ALERT_CONFIG = {
     "prediction_threshold": 0.5,  # For binary classification
     "high_severity_types": ["DDoS", "DoS", "Infiltration", "Heartbleed", "Exploits", "Backdoor", "Shellcode", "Worms"],
-    "medium_severity_types": ["BruteForce", "WebAttack", "Botnet", "Analysis", "Fuzzers"],
-    "low_severity_types": ["PortScan", "Reconnaissance"],
+    "medium_severity_types": ["BruteForce", "WebAttack", "Botnet", "Analysis", "Fuzzers", "Generic", "Reconnaissance"],
+    "low_severity_types": ["PortScan", "Normal", "Benign"],
 }
 
 # Producer configuration

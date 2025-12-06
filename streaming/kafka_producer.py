@@ -155,14 +155,16 @@ class NetworkTrafficProducer:
             DataFrame containing the dataset
         """
         dataset_paths = {
-            'cicids2017': DATA_DIR / 'CSE-CIC-IDS2017',
+            'cicids2017': DATA_DIR / 'preprocessed',  # Use preprocessed folder with thursday_sample.csv
             'cicids2018': DATA_DIR / 'CSE-CIC-IDS2018',
-            'unsw': DATA_DIR / 'preprocessed',  # UNSW data is in preprocessed folder
+            'unsw': DATA_DIR / 'testing',  # UNSW testing data
             'preprocessed': DATA_DIR / 'preprocessed',
         }
         
         # For UNSW, use only testing set for simulation
         unsw_files = ['UNSW_NB15_testing-set.csv']
+        # For CIC-IDS 2017, use thursday_sample.csv
+        cicids2017_files = ['thursday_sample.csv']
         
         if data_source not in dataset_paths:
             raise ValueError(f"Unknown data source: {data_source}")
@@ -174,6 +176,9 @@ class NetworkTrafficProducer:
         if data_source == 'unsw':
             # Load only UNSW files
             csv_files = [data_path / f for f in unsw_files if (data_path / f).exists()]
+        elif data_source == 'cicids2017':
+            # Load only CIC-IDS 2017 files (thursday_sample.csv)
+            csv_files = [data_path / f for f in cicids2017_files if (data_path / f).exists()]
         else:
             csv_files = sorted(data_path.glob("*.csv"))
         
@@ -369,8 +374,19 @@ def main():
         action='store_true',
         help='Do not shuffle the data'
     )
+    parser.add_argument(
+        '--session-id',
+        type=str,
+        default=None,
+        help='Session ID to use (for coordination with streaming pipeline)'
+    )
     
     args = parser.parse_args()
+    
+    # Display session info if provided
+    if args.session_id:
+        print(f"📍 Using session ID: {args.session_id}")
+        print("   Make sure spark_streaming.py uses the same --session-id")
     
     producer = NetworkTrafficProducer(
         bootstrap_servers=args.bootstrap_servers,

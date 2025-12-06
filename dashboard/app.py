@@ -2,15 +2,20 @@
 Flask Dashboard API for Network Intrusion Detection System
 
 Provides REST API endpoints and a simple web dashboard for viewing alerts.
+Supports session-based filtering to isolate alerts per streaming session.
 
 Usage:
     python app.py
+    python app.py --session <session_id>  # View specific session
     
 Endpoints:
     GET  /                   - Dashboard home page
     GET  /api/alerts         - Get recent alerts
     GET  /api/alerts/stats   - Get alert statistics
     GET  /api/alerts/timeline - Get attack timeline
+    GET  /api/sessions       - Get list of sessions
+    GET  /api/session/current - Get current session info
+    POST /api/session/set    - Set current session to view
     GET  /api/health         - Health check
 """
 
@@ -23,11 +28,19 @@ from flask import Flask, jsonify, request, render_template_string
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from streaming.alert_storage import AlertStorage
+from streaming.alert_storage import (
+    AlertStorage, 
+    get_current_session_id, 
+    set_current_session_id,
+    clear_session
+)
 from config import MONGODB_CONFIG, ATTACK_TYPE_MAPPING
 
 app = Flask(__name__)
 storage = None
+
+# Dashboard session state (which session to display)
+_dashboard_session_id = None
 
 
 def get_storage():
@@ -36,8 +49,31 @@ def get_storage():
     if storage is None:
         storage = AlertStorage()
         if not storage.connect():
+            storage = None
             return None
+    else:
+        # Verify connection is still alive
+        try:
+            storage.client.admin.command('ping')
+        except Exception:
+            # Connection lost, reconnect
+            storage = AlertStorage()
+            if not storage.connect():
+                storage = None
+                return None
     return storage
+
+
+def get_dashboard_session_id():
+    """Get the session ID to use for dashboard filtering."""
+    global _dashboard_session_id
+    return _dashboard_session_id
+
+
+def set_dashboard_session_id(session_id):
+    """Set the session ID for dashboard filtering."""
+    global _dashboard_session_id
+    _dashboard_session_id = session_id
 
 
 # HTML Template for Dashboard
@@ -65,8 +101,32 @@ DASHBOARD_TEMPLATE = """
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
         }
         h1 { color: #00d9ff; }
+        .header-right { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+        .session-info {
+            background: rgba(0, 217, 255, 0.1);
+            padding: 8px 15px;
+            border-radius: 5px;
+            border: 1px solid #00d9ff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .session-label { color: #aaa; font-size: 0.85em; }
+        .session-id { color: #00d9ff; font-family: monospace; font-weight: bold; }
+        .session-select {
+            background: rgba(255,255,255,0.1);
+            border: 1px solid #00d9ff;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .session-select option { background: #1a1a2e; }
         .status { display: flex; align-items: center; gap: 10px; }
         .status-dot {
             width: 12px; height: 12px;
@@ -175,22 +235,41 @@ DASHBOARD_TEMPLATE = """
             border-radius: 10px;
             font-weight: bold;
         }
+        .all-sessions-btn {
+            background: transparent;
+            border: 1px solid #00d9ff;
+            color: #00d9ff;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+        .all-sessions-btn:hover { background: rgba(0, 217, 255, 0.1); }
+        .all-sessions-btn.active { background: #00d9ff; color: #1a1a2e; }
     </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1>🛡️ Network Intrusion Detection System</h1>
-            <div class="status">
-                <span class="status-dot" id="status-dot"></span>
-                <span id="status-text">Connecting...</span>
+            <div class="header-right">
+                <div class="session-info">
+                    <span class="session-label">Session:</span>
+                    <select id="session-select" class="session-select" onchange="changeSession()">
+                        <option value="">All Sessions</option>
+                    </select>
+                </div>
+                <div class="status">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">Connecting...</span>
+                </div>
             </div>
         </header>
 
         <div class="stats-grid" id="stats-grid">
             <div class="stat-card total">
                 <div class="stat-value" id="total-alerts">-</div>
-                <div class="stat-label">Total Alerts (24h)</div>
+                <div class="stat-label">Total Alerts (Session)</div>
             </div>
             <div class="stat-card high">
                 <div class="stat-value" id="high-severity">-</div>
@@ -226,17 +305,67 @@ DASHBOARD_TEMPLATE = """
                         <th>Timestamp</th>
                         <th>Attack Type</th>
                         <th>Severity</th>
-                        <th>Confidence</th>
                     </tr>
                 </thead>
                 <tbody id="alerts-body">
-                    <tr><td colspan="4" class="no-data">Loading alerts...</td></tr>
+                    <tr><td colspan="3" class="no-data">Loading alerts...</td></tr>
                 </tbody>
             </table>
         </div>
     </div>
 
     <script>
+        async function loadData() {
+            // Load stats
+        let currentSessionId = null;
+        
+        async function loadSessions() {
+            try {
+                const sessionsRes = await fetch('/api/sessions');
+                const sessions = await sessionsRes.json();
+                
+                const select = document.getElementById('session-select');
+                // Keep the first option (All Sessions)
+                select.innerHTML = '<option value="">All Sessions</option>';
+                
+                sessions.forEach(session => {
+                    const option = document.createElement('option');
+                    option.value = session.session_id;
+                    const status = session.status === 'active' ? '🟢' : '⚪';
+                    const startTime = session.started_at ? new Date(session.started_at).toLocaleString() : 'Unknown';
+                    option.textContent = `${status} ${session.session_id} (${startTime})`;
+                    select.appendChild(option);
+                });
+                
+                // Select current session
+                const currentRes = await fetch('/api/session/current');
+                const current = await currentRes.json();
+                if (current.session_id) {
+                    select.value = current.session_id;
+                    currentSessionId = current.session_id;
+                }
+            } catch (e) {
+                console.error('Failed to load sessions:', e);
+            }
+        }
+        
+        async function changeSession() {
+            const select = document.getElementById('session-select');
+            const sessionId = select.value;
+            
+            try {
+                await fetch('/api/session/set', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_id: sessionId || null })
+                });
+                currentSessionId = sessionId || null;
+                loadData();
+            } catch (e) {
+                console.error('Failed to change session:', e);
+            }
+        }
+        
         async function loadData() {
             // Load stats
             try {
@@ -281,19 +410,16 @@ DASHBOARD_TEMPLATE = """
                 tbody.innerHTML = '';
                 
                 if (alerts.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="4" class="no-data">No alerts found</td></tr>';
+                    tbody.innerHTML = '<tr><td colspan="3" class="no-data">No alerts found</td></tr>';
                 } else {
                     alerts.forEach(alert => {
                         const tr = document.createElement('tr');
                         const timestamp = new Date(alert.processed_at).toLocaleString();
-                        const confidence = alert.binary_probability ? 
-                            (alert.binary_probability[1] * 100).toFixed(1) + '%' : 'N/A';
                         
                         tr.innerHTML = `
                             <td>${timestamp}</td>
                             <td class="attack-type">${alert.attack_type || 'Unknown'}</td>
                             <td><span class="severity-badge severity-${alert.severity}">${alert.severity}</span></td>
-                            <td>${confidence}</td>
                         `;
                         tbody.appendChild(tr);
                     });
@@ -303,11 +429,14 @@ DASHBOARD_TEMPLATE = """
             }
         }
         
-        // Load data on page load
+        // Load sessions and data on page load
+        loadSessions();
         loadData();
         
         // Auto-refresh every 10 seconds
         setInterval(loadData, 10000);
+        // Refresh sessions every 30 seconds
+        setInterval(loadSessions, 30000);
     </script>
 </body>
 </html>
@@ -342,6 +471,7 @@ def get_alerts():
         limit: Maximum number of alerts (default: 100)
         severity: Filter by severity (HIGH, MEDIUM, LOW)
         attack_type: Filter by attack type
+        session_id: Filter by session (uses dashboard session if not provided)
     """
     storage = get_storage()
     if not storage:
@@ -351,11 +481,17 @@ def get_alerts():
     severity = request.args.get('severity')
     attack_type = request.args.get('attack_type')
     
+    # Use dashboard session if not explicitly provided
+    session_id = get_dashboard_session_id()
+    session_only = session_id is not None
+    
     try:
         alerts = storage.get_recent_alerts(
             limit=limit,
             severity=severity,
-            attack_type=attack_type
+            attack_type=attack_type,
+            session_id=session_id,
+            session_only=session_only
         )
         
         # Convert ObjectId and datetime for JSON serialization
@@ -386,8 +522,16 @@ def get_stats():
     
     hours = request.args.get('hours', 24, type=int)
     
+    # Use dashboard session if set
+    session_id = get_dashboard_session_id()
+    session_only = session_id is not None
+    
     try:
-        stats = storage.get_alert_statistics(hours=hours)
+        stats = storage.get_alert_statistics(
+            hours=hours,
+            session_id=session_id,
+            session_only=session_only
+        )
         return jsonify(stats)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -409,8 +553,17 @@ def get_timeline():
     hours = request.args.get('hours', 24, type=int)
     interval = request.args.get('interval', 60, type=int)
     
+    # Use dashboard session if set
+    session_id = get_dashboard_session_id()
+    session_only = session_id is not None
+    
     try:
-        timeline = storage.get_attack_timeline(hours=hours, interval_minutes=interval)
+        timeline = storage.get_attack_timeline(
+            hours=hours, 
+            interval_minutes=interval,
+            session_id=session_id,
+            session_only=session_only
+        )
         
         # Convert datetime for JSON
         for item in timeline:
@@ -420,6 +573,45 @@ def get_timeline():
         return jsonify(timeline)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/sessions')
+def get_sessions():
+    """Get list of recent sessions."""
+    storage = get_storage()
+    if not storage:
+        return jsonify({"error": "Database not connected"}), 503
+    
+    try:
+        sessions = storage.get_sessions(limit=20)
+        return jsonify(sessions)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/session/current')
+def get_current_session():
+    """Get the current dashboard session."""
+    session_id = get_dashboard_session_id()
+    return jsonify({
+        "session_id": session_id,
+        "is_filtered": session_id is not None
+    })
+
+
+@app.route('/api/session/set', methods=['POST'])
+def set_session():
+    """Set the current dashboard session."""
+    data = request.get_json()
+    session_id = data.get('session_id') if data else None
+    
+    set_dashboard_session_id(session_id)
+    
+    return jsonify({
+        "success": True,
+        "session_id": session_id,
+        "is_filtered": session_id is not None
+    })
 
 
 @app.route('/api/attack-types')
@@ -436,14 +628,24 @@ def main():
     parser.add_argument('--host', default='0.0.0.0', help='Host to bind to')
     parser.add_argument('--port', type=int, default=5000, help='Port to bind to')
     parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+    parser.add_argument('--session', type=str, default=None, 
+                        help='Session ID to filter alerts (shows all sessions if not specified)')
     
     args = parser.parse_args()
+    
+    # Set initial session if provided
+    if args.session:
+        set_dashboard_session_id(args.session)
     
     print("="*60)
     print("Network Intrusion Detection Dashboard")
     print("="*60)
     print(f"🌐 Dashboard: http://localhost:{args.port}")
     print(f"📊 API: http://localhost:{args.port}/api/alerts")
+    if args.session:
+        print(f"📍 Filtering by session: {args.session}")
+    else:
+        print(f"📍 Showing all sessions (select in UI to filter)")
     print("="*60)
     
     app.run(host=args.host, port=args.port, debug=args.debug)
