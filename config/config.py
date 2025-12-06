@@ -93,17 +93,17 @@ UNSW_FEATURE_CONFIG = {
     "attack_column": "attack_cat",
 }
 
-# Attack type mapping (CIC-IDS labels)
+# Attack type mapping (CIC-IDS labels) - MUST match training labels from label_harmonization.ipynb
 ATTACK_TYPE_MAPPING = {
     0: "Benign",
     1: "DoS",
     2: "DDoS", 
-    3: "PortScan",
-    4: "BruteForce",
-    5: "WebAttack",
-    6: "Infiltration",
-    7: "Botnet",
-    8: "Heartbleed",
+    3: "Brute_Force",     # Changed from PortScan - matches training
+    4: "Web_Attack",      # Changed from BruteForce - matches training  
+    5: "Infiltration",
+    6: "Botnet",
+    7: "PortScan",        # Changed from 3 to 7 - matches training
+    8: "Other",           # Changed from Heartbleed - matches training (includes Heartbleed, HOIC, etc.)
 }
 
 # UNSW-NB15 Attack type mapping (from multiclass model)
@@ -129,9 +129,9 @@ STREAMING_CONFIG = {
 # Alert thresholds
 ALERT_CONFIG = {
     "prediction_threshold": 0.5,  # For binary classification
-    "high_severity_types": ["DDoS", "DoS", "Infiltration", "Heartbleed", "Exploits", "Backdoor", "Shellcode", "Worms"],
-    "medium_severity_types": ["BruteForce", "WebAttack", "Botnet", "Analysis", "Fuzzers"],
-    "low_severity_types": ["PortScan", "Reconnaissance"],
+    "high_severity_types": ["DDoS", "DoS", "Infiltration", "Other", "Exploits", "Backdoor", "Shellcode", "Worms"],
+    "medium_severity_types": ["Brute_Force", "Web_Attack", "Botnet", "Analysis", "Fuzzers"],
+    "low_severity_types": ["PortScan", "Reconnaissance", "Unknown"],
 }
 
 # Producer configuration

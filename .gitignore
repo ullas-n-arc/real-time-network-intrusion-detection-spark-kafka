@@ -106,3 +106,5 @@ dist/
 # Allow specific training files (required for model training)
 !data/training/UNSW_NB15_training-set.csv
 .devcontainer/devcontainer.json
+
+checkpoints/

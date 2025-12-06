@@ -77,26 +77,29 @@ class SparkStreamingProcessor:
         builder = (
             SparkSession.builder
             .appName(SPARK_CONFIG["app_name"])
-            .config("spark.driver.memory", "2g")
-            .config("spark.executor.memory", "2g")
+            .config("spark.driver.memory", "1g")
+            .config("spark.executor.memory", "1g")
             # Reduce shuffle partitions for local mode - key optimization
             .config("spark.sql.shuffle.partitions", "2")
             .config("spark.default.parallelism", "2")
             # Use Kryo serialization for faster serialization
             .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer")
-            .config("spark.kryoserializer.buffer.max", "512m")
+            .config("spark.kryoserializer.buffer.max", "256m")
             # Streaming optimizations
             .config("spark.streaming.stopGracefullyOnShutdown", "true")
             .config("spark.sql.streaming.checkpointLocation", STREAMING_CONFIG["checkpoint_dir"])
             # Reduce overhead
-            .config("spark.driver.maxResultSize", "512m")
+            .config("spark.driver.maxResultSize", "256m")
             # Enable adaptive query execution for better performance
             .config("spark.sql.adaptive.enabled", "true")
             .config("spark.sql.adaptive.coalescePartitions.enabled", "true")
             .config("spark.sql.adaptive.skewJoin.enabled", "true")
             # Reduce network timeouts for faster failure detection
-            .config("spark.network.timeout", "120s")
-            .config("spark.executor.heartbeatInterval", "20s")
+            .config("spark.network.timeout", "180s")
+            .config("spark.executor.heartbeatInterval", "30s")
+            # Prevent connection pool exhaustion
+            .config("spark.rpc.numRetries", "5")
+            .config("spark.rpc.retry.wait", "5s")
             # Optimize Kafka reading
             .config("spark.streaming.kafka.maxRatePerPartition", "1000")
             # Reduce logging overhead
@@ -364,38 +367,53 @@ class SparkStreamingProcessor:
     def enrich_predictions(self, df: DataFrame) -> DataFrame:
         """Add attack type labels and severity to predictions."""
 
-        # Choose attack mapping based on data source
-        if self.data_source == "unsw":
-            attack_mapping = UNSW_ATTACK_TYPE_MAPPING
-        else:
-            attack_mapping = ATTACK_TYPE_MAPPING
-
-        # Build CASE expression for attack type mapping
-        attack_type_col = F.lit("Unknown")
-        for k, v in attack_mapping.items():
-            attack_type_col = F.when(
-                F.col("multiclass_prediction") == float(k),
-                F.lit(v)
-            ).otherwise(attack_type_col)
-
-        df = df.withColumn("attack_type", attack_type_col)
-
-        # Add is_attack flag from binary prediction
+        # Use BOTH models: binary for detection, multiclass for type
+        # Binary model detects if it's an attack (better recall)
+        # Multiclass model identifies the specific type (when it works)
         df = df.withColumn(
             "is_attack",
             F.when(F.col("binary_prediction") == 1.0, F.lit(True)).otherwise(F.lit(False))
         )
 
-        # Add severity level
+        # Choose attack mapping based on data source
+        if self.data_source == "unsw":
+            attack_mapping = UNSW_ATTACK_TYPE_MAPPING
+            benign_label = "Normal"
+        else:
+            attack_mapping = ATTACK_TYPE_MAPPING
+            benign_label = "Benign"
+
+        # Build CASE expression for attack type mapping
+        # First, check if is_attack is False - always use benign label
+        attack_type_col = F.when(F.col("is_attack") == False, F.lit(benign_label))
+        
+        # If is_attack is True, map multiclass prediction to attack type
+        for k, v in attack_mapping.items():
+            # Skip mapping key 0 (which is Normal/Benign in the models)
+            if k == 0:
+                continue
+            attack_type_col = attack_type_col.when(
+                (F.col("is_attack") == True) & (F.col("multiclass_prediction") == float(k)),
+                F.lit(v)
+            )
+        
+        # If is_attack is True but no mapping matched, use "Unknown"
+        attack_type_col = attack_type_col.otherwise(
+            F.when(F.col("is_attack") == True, F.lit("Unknown")).otherwise(F.lit(benign_label))
+        )
+
+        df = df.withColumn("attack_type", attack_type_col)
+
+        # Add severity level - only for actual attacks (is_attack=True)
         high_severity = ALERT_CONFIG["high_severity_types"]
         medium_severity = ALERT_CONFIG["medium_severity_types"]
 
         df = df.withColumn(
             "severity",
-            F.when(F.col("attack_type").isin(high_severity), "HIGH")
+            F.when(F.col("is_attack") == False, "NONE")
+             .when(F.col("attack_type").isin(high_severity), "HIGH")
              .when(F.col("attack_type").isin(medium_severity), "MEDIUM")
-             .when(F.col("is_attack"), "LOW")
-             .otherwise("NONE")
+             .otherwise("LOW")
         )
 
         # Processing timestamp
@@ -405,8 +423,9 @@ class SparkStreamingProcessor:
 
     def write_to_console(self, df: DataFrame, output_mode: str = "append"):
         """Write results to console for monitoring."""
-        # Select meaningful columns for display
+        # Select meaningful columns for display - add predictions for debugging
         display_cols = [
+            "binary_prediction", "multiclass_prediction", 
             "is_attack", "attack_type", "severity", "processed_at"
         ]
 
@@ -581,10 +600,18 @@ class SparkStreamingProcessor:
         except KeyboardInterrupt:
             logger.info("\n⏹️ Stopping streaming pipeline...")
             for query in queries:
-                query.stop()
+                try:
+                    query.stop()
+                except Exception as e:
+                    logger.warning(f"Error stopping query: {e}")
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
         finally:
-            self.spark.stop()
-            logger.info("✅ Spark session stopped")
+            try:
+                self.spark.stop()
+                logger.info("✅ Spark session stopped")
+            except Exception as e:
+                logger.warning(f"Error stopping Spark session: {e}")
 
 
 def main():
