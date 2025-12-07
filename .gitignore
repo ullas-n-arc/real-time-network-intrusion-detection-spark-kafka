@@ -1,7 +1,12 @@
+# ============================================================
+# SPARK CHECKPOINTS - DO NOT COMMIT (Codespace-specific)
+# These are generated during Spark streaming and should never be pushed
+# ============================================================
+checkpoints/
+
 # Compiled class file
 *.class
-checkpoints/
-checkpoints/mongodb/*
+
 # Log file
 *.log
 
@@ -107,5 +112,3 @@ dist/
 # Allow specific training files (required for model training)
 !data/training/UNSW_NB15_training-set.csv
 .devcontainer/devcontainer.json
-
-checkpoints/
