@@ -1,0 +1,380 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - NIDS{% endblock %}
+
+{% block content %}
+<div class="container container-narrow">
+    <!-- Page header -->
+    <header class="page-header">
+        <div class="page-header-content">
+            <h1 class="page-title">Settings</h1>
+            <p class="page-subtitle">Configure your dashboard preferences and system settings</p>
+        </div>
+    </header>
+    
+    <div class="settings-layout">
+        <!-- Settings navigation -->
+        <nav class="settings-nav" aria-label="Settings sections">
+            <ul class="settings-nav-list">
+                <li>
+                    <a href="#appearance" class="settings-nav-link active">
+                        <span class="nav-icon" aria-hidden="true">🎨</span>
+                        Appearance
+                    </a>
+                </li>
+                <li>
+                    <a href="#notifications" class="settings-nav-link">
+                        <span class="nav-icon" aria-hidden="true">🔔</span>
+                        Notifications
+                    </a>
+                </li>
+                <li>
+                    <a href="#data" class="settings-nav-link">
+                        <span class="nav-icon" aria-hidden="true">💾</span>
+                        Data Management
+                    </a>
+                </li>
+                <li>
+                    <a href="#system" class="settings-nav-link">
+                        <span class="nav-icon" aria-hidden="true">⚙️</span>
+                        System
+                    </a>
+                </li>
+                <li>
+                    <a href="#about" class="settings-nav-link">
+                        <span class="nav-icon" aria-hidden="true">ℹ️</span>
+                        About
+                    </a>
+                </li>
+            </ul>
+        </nav>
+        
+        <!-- Settings content -->
+        <div class="settings-content">
+            <!-- Appearance section -->
+            <section id="appearance" class="settings-section" aria-labelledby="appearance-heading">
+                <h2 id="appearance-heading" class="settings-section-title">Appearance</h2>
+                
+                <div class="settings-card">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Theme</h3>
+                            <p class="setting-description">Choose between light and dark mode</p>
+                        </div>
+                        <div class="setting-control">
+                            <div class="radio-group-horizontal">
+                                <label class="radio-card">
+                                    <input type="radio" name="theme" value="light">
+                                    <span class="radio-card-content">
+                                        <span class="radio-card-icon" aria-hidden="true">☀️</span>
+                                        <span class="radio-card-label">Light</span>
+                                    </span>
+                                </label>
+                                <label class="radio-card">
+                                    <input type="radio" name="theme" value="dark" checked>
+                                    <span class="radio-card-content">
+                                        <span class="radio-card-icon" aria-hidden="true">🌙</span>
+                                        <span class="radio-card-label">Dark</span>
+                                    </span>
+                                </label>
+                                <label class="radio-card">
+                                    <input type="radio" name="theme" value="system">
+                                    <span class="radio-card-content">
+                                        <span class="radio-card-icon" aria-hidden="true">💻</span>
+                                        <span class="radio-card-label">System</span>
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Accent Color</h3>
+                            <p class="setting-description">Customize the accent color</p>
+                        </div>
+                        <div class="setting-control">
+                            <div class="color-picker-group">
+                                <label class="color-option">
+                                    <input type="radio" name="accent-color" value="cyan" checked>
+                                    <span class="color-swatch" style="background: #00d9ff;"></span>
+                                </label>
+                                <label class="color-option">
+                                    <input type="radio" name="accent-color" value="blue">
+                                    <span class="color-swatch" style="background: #3b82f6;"></span>
+                                </label>
+                                <label class="color-option">
+                                    <input type="radio" name="accent-color" value="purple">
+                                    <span class="color-swatch" style="background: #8b5cf6;"></span>
+                                </label>
+                                <label class="color-option">
+                                    <input type="radio" name="accent-color" value="green">
+                                    <span class="color-swatch" style="background: #10b981;"></span>
+                                </label>
+                                <label class="color-option">
+                                    <input type="radio" name="accent-color" value="orange">
+                                    <span class="color-swatch" style="background: #f59e0b;"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Font Size</h3>
+                            <p class="setting-description">Adjust the base font size</p>
+                        </div>
+                        <div class="setting-control">
+                            <div class="range-input-group">
+                                <input type="range" id="font-size" min="12" max="20" value="16" class="range-input" aria-label="Font size">
+                                <span class="range-value" id="font-size-value">16px</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Compact Mode</h3>
+                            <p class="setting-description">Reduce spacing for more content</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="compact-mode">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Notifications section -->
+            <section id="notifications" class="settings-section" aria-labelledby="notifications-heading">
+                <h2 id="notifications-heading" class="settings-section-title">Notifications</h2>
+                
+                <div class="settings-card">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Enable Notifications</h3>
+                            <p class="setting-description">Show browser notifications for new alerts</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="enable-notifications">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Sound Alerts</h3>
+                            <p class="setting-description">Play sound for high severity alerts</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="sound-alerts">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Alert Threshold</h3>
+                            <p class="setting-description">Minimum severity level for notifications</p>
+                        </div>
+                        <div class="setting-control">
+                            <select id="alert-threshold" class="form-select">
+                                <option value="LOW">All Alerts (Low+)</option>
+                                <option value="MEDIUM" selected>Medium and above</option>
+                                <option value="HIGH">High only</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Data Management section -->
+            <section id="data" class="settings-section" aria-labelledby="data-heading">
+                <h2 id="data-heading" class="settings-section-title">Data Management</h2>
+                
+                <div class="settings-card">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Auto-refresh Interval</h3>
+                            <p class="setting-description">How often to refresh dashboard data</p>
+                        </div>
+                        <div class="setting-control">
+                            <select id="refresh-interval" class="form-select">
+                                <option value="5">5 seconds</option>
+                                <option value="10" selected>10 seconds</option>
+                                <option value="30">30 seconds</option>
+                                <option value="60">1 minute</option>
+                                <option value="0">Manual only</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Default Page Size</h3>
+                            <p class="setting-description">Number of items per page in tables</p>
+                        </div>
+                        <div class="setting-control">
+                            <select id="page-size-default" class="form-select">
+                                <option value="10">10</option>
+                                <option value="25" selected>25</option>
+                                <option value="50">50</option>
+                                <option value="100">100</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item setting-item-danger">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Clear All Sessions</h3>
+                            <p class="setting-description">Delete all session data and alerts</p>
+                        </div>
+                        <div class="setting-control">
+                            <button type="button" class="btn btn-danger" id="clear-all-data-btn">
+                                Clear All Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- System section -->
+            <section id="system" class="settings-section" aria-labelledby="system-heading">
+                <h2 id="system-heading" class="settings-section-title">System</h2>
+                
+                <div class="settings-card">
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Connection Status</h3>
+                            <p class="setting-description">MongoDB and API connection status</p>
+                        </div>
+                        <div class="setting-control">
+                            <div class="status-indicators">
+                                <div class="status-indicator" id="mongodb-status">
+                                    <span class="status-dot" aria-hidden="true"></span>
+                                    <span class="status-label">MongoDB</span>
+                                </div>
+                                <div class="status-indicator" id="api-status">
+                                    <span class="status-dot" aria-hidden="true"></span>
+                                    <span class="status-label">API</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">API Endpoint</h3>
+                            <p class="setting-description">Backend API base URL</p>
+                        </div>
+                        <div class="setting-control">
+                            <code class="code-inline" id="api-endpoint">{{ request.host_url }}api</code>
+                        </div>
+                    </div>
+                    
+                    <div class="setting-item">
+                        <div class="setting-info">
+                            <h3 class="setting-title">Debug Mode</h3>
+                            <p class="setting-description">Enable debug information in console</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="debug-mode">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- About section -->
+            <section id="about" class="settings-section" aria-labelledby="about-heading">
+                <h2 id="about-heading" class="settings-section-title">About</h2>
+                
+                <div class="settings-card">
+                    <div class="about-content">
+                        <div class="about-logo">
+                            <span class="about-logo-icon" aria-hidden="true">🛡️</span>
+                            <h3>Network Intrusion Detection System</h3>
+                        </div>
+                        
+                        <div class="about-info">
+                            <div class="about-item">
+                                <span class="about-label">Version</span>
+                                <span class="about-value">2.0.0</span>
+                            </div>
+                            <div class="about-item">
+                                <span class="about-label">Build Date</span>
+                                <span class="about-value">December 2024</span>
+                            </div>
+                            <div class="about-item">
+                                <span class="about-label">Framework</span>
+                                <span class="about-value">Flask + Spark + Kafka</span>
+                            </div>
+                        </div>
+                        
+                        <p class="about-description">
+                            A real-time network intrusion detection system using Apache Spark for 
+                            stream processing, Kafka for message queuing, and machine learning 
+                            models for threat detection.
+                        </p>
+                        
+                        <div class="about-links">
+                            <a href="https://github.com" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+                                <span class="btn-icon" aria-hidden="true">📂</span>
+                                View on GitHub
+                            </a>
+                            <a href="#" class="btn btn-ghost" id="view-docs-btn">
+                                <span class="btn-icon" aria-hidden="true">📖</span>
+                                Documentation
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Save button -->
+            <div class="settings-actions">
+                <button type="button" class="btn btn-secondary" id="reset-settings-btn">
+                    Reset to Defaults
+                </button>
+                <button type="button" class="btn btn-primary" id="save-settings-btn">
+                    Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Confirm clear data modal -->
+<div class="modal" id="confirm-clear-modal" role="alertdialog" aria-labelledby="clear-modal-title" aria-describedby="clear-modal-desc" aria-modal="true" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-content modal-content-sm">
+        <header class="modal-header modal-header-danger">
+            <h2 id="clear-modal-title" class="modal-title">⚠️ Clear All Data</h2>
+            <button type="button" class="modal-close" data-close-modal aria-label="Close modal">×</button>
+        </header>
+        <div class="modal-body">
+            <p id="clear-modal-desc">This will permanently delete all sessions and alerts from the database. This action cannot be undone.</p>
+            <div class="form-group" style="margin-top: 1rem;">
+                <label for="confirm-clear-input" class="form-label">Type "DELETE" to confirm:</label>
+                <input type="text" id="confirm-clear-input" class="form-input" placeholder="DELETE" autocomplete="off">
+            </div>
+        </div>
+        <footer class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+            <button type="button" class="btn btn-danger" id="confirm-clear-btn" disabled>Delete All Data</button>
+        </footer>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %}

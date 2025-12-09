@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Network Intrusion Detection System - Real-time monitoring dashboard">
+    <meta name="theme-color" content="#1a1a2e">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    
+    <!-- Security headers via meta tags -->
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta name="referrer" content="strict-origin-when-cross-origin">
+    
+    <title>{% block title %}NIDS Dashboard{% endblock %}</title>
+    
+    <!-- Preconnect to external resources -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Google Fonts - Inter for modern typography -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    
+    <!-- Chart.js for visualizations -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/main.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+    
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+    <!-- Skip to main content for accessibility -->
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+    
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="loading-overlay" aria-hidden="true">
+        <div class="loading-spinner">
+            <div class="spinner"></div>
+            <p>Loading...</p>
+        </div>
+    </div>
+    
+    <!-- Toast notification container -->
+    <div id="toast-container" class="toast-container" role="alert" aria-live="polite" aria-atomic="true"></div>
+    
+    <!-- Main navigation -->
+    <nav class="navbar" role="navigation" aria-label="Main navigation">
+        <div class="navbar-brand">
+            <a href="{{ url_for('dashboard') }}" class="navbar-logo" aria-label="NIDS Dashboard Home">
+                <span class="logo-icon" aria-hidden="true">🛡️</span>
+                <span class="logo-text">NIDS</span>
+            </a>
+            <button class="navbar-toggle" id="navbar-toggle" aria-label="Toggle navigation menu" aria-expanded="false" aria-controls="navbar-menu">
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+                <span class="hamburger-line"></span>
+            </button>
+        </div>
+        
+        <div class="navbar-menu" id="navbar-menu">
+            <ul class="navbar-nav">
+                <li class="nav-item">
+                    <a href="{{ url_for('dashboard') }}" class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" aria-current="{% if request.endpoint == 'dashboard' %}page{% endif %}">
+                        <span class="nav-icon" aria-hidden="true">📊</span>
+                        <span>Dashboard</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="{{ url_for('alerts_page') }}" class="nav-link {% if request.endpoint == 'alerts_page' %}active{% endif %}" aria-current="{% if request.endpoint == 'alerts_page' %}page{% endif %}">
+                        <span class="nav-icon" aria-hidden="true">🚨</span>
+                        <span>Alerts</span>
+                    </a>
+                </li>
+            </ul>
+            
+            <div class="navbar-actions">
+                <!-- Connection status -->
+                <div class="connection-status" id="connection-status" role="status" aria-live="polite">
+                    <span class="status-dot offline" id="status-dot" aria-hidden="true"></span>
+                    <span class="status-text" id="status-text">Connecting...</span>
+                </div>
+                
+                <!-- Theme toggle -->
+                <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light theme" title="Toggle theme">
+                    <span class="theme-icon-dark" aria-hidden="true">🌙</span>
+                    <span class="theme-icon-light" aria-hidden="true">☀️</span>
+                </button>
+            </div>
+        </div>
+    </nav>
+    
+    <!-- Main content area -->
+    <main id="main-content" class="main-content" role="main">
+        {% block content %}{% endblock %}
+    </main>
+    
+    <!-- Core JavaScript -->
+    <script src="{{ url_for('static', filename='js/utils.js') }}?v={{ range(1, 10000)|random }}"></script>
+    <script src="{{ url_for('static', filename='js/api.js') }}?v={{ range(1, 10000)|random }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v={{ range(1, 10000)|random }}"></script>
+    
+    {% block extra_scripts %}{% endblock %}
+</body>
+</html>

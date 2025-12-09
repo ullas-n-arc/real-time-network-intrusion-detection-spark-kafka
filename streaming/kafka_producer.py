@@ -5,7 +5,7 @@ This module reads network traffic data from CIC-IDS datasets and sends them
 to a Kafka topic in real-time simulation mode.
 
 Usage:
-    python kafka_producer.py --data-source cicids2017 --rate 100
+    python kafka_producer.py --data-source unsw --rate 1000
 """
 
 import json

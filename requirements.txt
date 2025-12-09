@@ -17,6 +17,7 @@ pymongo>=4.0.0
 
 # Flask for dashboard
 flask>=2.0.0
+flask-cors>=3.0.10
 
 # Visualization (optional)
 matplotlib>=3.3.0

@@ -1,0 +1,279 @@
+{% extends "base.html" %}
+
+{% block title %}Alerts - NIDS{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Page header -->
+    <header class="page-header">
+        <div class="page-header-content">
+            <h1 class="page-title">Intrusion Alerts</h1>
+            <p class="page-subtitle">View and manage all detected security threats</p>
+        </div>
+    </header>
+    
+    <!-- Filters section -->
+    <section class="filters-section" aria-labelledby="filters-heading">
+        <h2 id="filters-heading" class="visually-hidden">Filter Alerts</h2>
+        
+        <form id="alerts-filter-form" class="filters-form" role="search">
+            <div class="filters-row">
+                <!-- Search input -->
+                <div class="filter-group filter-group-search">
+                    <label for="search-input" class="visually-hidden">Search alerts</label>
+                    <div class="search-input-wrapper">
+                        <span class="search-icon" aria-hidden="true">🔍</span>
+                        <input type="search" id="search-input" class="form-input" placeholder="Search alerts..." aria-label="Search alerts">
+                        <button type="button" class="search-clear" id="search-clear" aria-label="Clear search" hidden>×</button>
+                    </div>
+                </div>
+                
+                <!-- Severity filter -->
+                <div class="filter-group">
+                    <label for="severity-filter" class="filter-label">Severity</label>
+                    <select id="severity-filter" class="form-select">
+                        <option value="">All Severities</option>
+                        <option value="HIGH">High</option>
+                        <option value="MEDIUM">Medium</option>
+                        <option value="LOW">Low</option>
+                    </select>
+                </div>
+                
+                <!-- Attack type filter -->
+                <div class="filter-group">
+                    <label for="attack-type-filter" class="filter-label">Attack Type</label>
+                    <select id="attack-type-filter" class="form-select">
+                        <option value="">All Types</option>
+                    </select>
+                </div>
+                
+                <!-- Session filter -->
+                <div class="filter-group">
+                    <label for="session-filter" class="filter-label">Session</label>
+                    <select id="session-filter" class="form-select">
+                        <option value="">All Sessions</option>
+                    </select>
+                </div>
+                
+                <!-- Date range filter -->
+                <div class="filter-group">
+                    <label for="date-from" class="filter-label">Date Range</label>
+                    <div class="date-range-inputs">
+                        <input type="datetime-local" id="date-from" class="form-input" aria-label="From date">
+                        <span class="date-separator">to</span>
+                        <input type="datetime-local" id="date-to" class="form-input" aria-label="To date">
+                    </div>
+                </div>
+            </div>
+            
+            <div class="filters-actions">
+                <button type="submit" class="btn btn-primary">
+                    <span class="btn-icon" aria-hidden="true">🔍</span>
+                    Apply Filters
+                </button>
+                <button type="button" class="btn btn-secondary" id="reset-filters-btn">
+                    <span class="btn-icon" aria-hidden="true">↻</span>
+                    Reset
+                </button>
+                <button type="button" class="btn btn-ghost" id="export-btn" aria-label="Export alerts">
+                    <span class="btn-icon" aria-hidden="true">📥</span>
+                    Export
+                </button>
+            </div>
+        </form>
+    </section>
+    
+    <!-- Active filters display -->
+    <div class="active-filters" id="active-filters" hidden>
+        <span class="active-filters-label">Active filters:</span>
+        <div class="filter-tags" id="filter-tags"></div>
+        <button type="button" class="btn btn-sm btn-ghost" id="clear-all-filters">Clear all</button>
+    </div>
+    
+    <!-- Results summary -->
+    <div class="results-summary" id="results-summary">
+        <span class="results-count" id="results-count">Loading...</span>
+        <div class="results-view-options">
+            <button type="button" class="view-option active" id="view-table" aria-label="Table view" aria-pressed="true">
+                <span aria-hidden="true">☰</span>
+            </button>
+            <button type="button" class="view-option" id="view-cards" aria-label="Card view" aria-pressed="false">
+                <span aria-hidden="true">⊞</span>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Alerts list - Table view -->
+    <section class="alerts-list-section" id="table-view-section" aria-labelledby="alerts-list-heading">
+        <h2 id="alerts-list-heading" class="visually-hidden">Alerts List</h2>
+        
+        <div class="table-container">
+            <table class="data-table data-table-selectable" id="alerts-table" aria-describedby="alerts-list-heading">
+                <thead>
+                    <tr>
+                        <th scope="col" class="table-checkbox-col">
+                            <label class="checkbox-wrapper">
+                                <input type="checkbox" id="select-all-alerts" aria-label="Select all alerts">
+                                <span class="checkbox-custom"></span>
+                            </label>
+                        </th>
+                        <th scope="col">
+                            <button type="button" class="table-sort active" data-sort="timestamp" data-order="desc" aria-label="Sort by timestamp, currently sorted descending">
+                                Timestamp
+                                <span class="sort-indicator" aria-hidden="true">↓</span>
+                            </button>
+                        </th>
+                        <th scope="col">
+                            <button type="button" class="table-sort" data-sort="attack_type" aria-label="Sort by attack type">
+                                Attack Type
+                                <span class="sort-indicator" aria-hidden="true"></span>
+                            </button>
+                        </th>
+                        <th scope="col">
+                            <button type="button" class="table-sort" data-sort="severity" aria-label="Sort by severity">
+                                Severity
+                                <span class="sort-indicator" aria-hidden="true"></span>
+                            </button>
+                        </th>
+                        <th scope="col">Session</th>
+                        <th scope="col">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="alerts-body">
+                    <tr>
+                        <td colspan="6" class="table-empty">
+                            <div class="empty-state">
+                                <span class="empty-icon" aria-hidden="true">📭</span>
+                                <p>Loading alerts...</p>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    
+    <!-- Alerts list - Card view -->
+    <section class="alerts-cards-section" id="card-view-section" aria-labelledby="alerts-cards-heading" hidden>
+        <h2 id="alerts-cards-heading" class="visually-hidden">Alerts Cards</h2>
+        <div class="alerts-cards-grid" id="alerts-cards-container">
+            <!-- Cards populated by JavaScript -->
+        </div>
+    </section>
+    
+    <!-- Pagination -->
+    <nav class="pagination" aria-label="Alerts pagination" id="alerts-pagination">
+        <div class="pagination-info">
+            <span id="pagination-summary">Showing 0-0 of 0 alerts</span>
+        </div>
+        <div class="pagination-controls">
+            <button type="button" class="pagination-btn" id="first-page" disabled aria-label="First page">
+                ⟪
+            </button>
+            <button type="button" class="pagination-btn" id="prev-page" disabled aria-label="Previous page">
+                ←
+            </button>
+            <div class="pagination-pages" id="pagination-pages">
+                <!-- Page buttons populated by JavaScript -->
+            </div>
+            <button type="button" class="pagination-btn" id="next-page" disabled aria-label="Next page">
+                →
+            </button>
+            <button type="button" class="pagination-btn" id="last-page" disabled aria-label="Last page">
+                ⟫
+            </button>
+        </div>
+        <div class="pagination-size">
+            <label for="page-size" class="pagination-size-label">Per page:</label>
+            <select id="page-size" class="form-select form-select-sm">
+                <option value="10">10</option>
+                <option value="25" selected>25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+            </select>
+        </div>
+    </nav>
+    
+    <!-- Bulk actions bar -->
+    <div class="bulk-actions-bar" id="bulk-actions-bar" hidden>
+        <span class="bulk-actions-count" id="selected-count">0 selected</span>
+        <div class="bulk-actions">
+            <button type="button" class="btn btn-sm btn-secondary" id="export-selected-btn">
+                Export Selected
+            </button>
+            <button type="button" class="btn btn-sm btn-danger" id="delete-selected-btn">
+                Delete Selected
+            </button>
+        </div>
+        <button type="button" class="bulk-actions-close" id="close-bulk-actions" aria-label="Close bulk actions">×</button>
+    </div>
+</div>
+
+<!-- Alert detail modal -->
+<div class="modal" id="alert-detail-modal" role="dialog" aria-labelledby="alert-modal-title" aria-modal="true" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-content modal-content-lg">
+        <header class="modal-header">
+            <h2 id="alert-modal-title" class="modal-title">Alert Details</h2>
+            <button type="button" class="modal-close" data-close-modal aria-label="Close modal">×</button>
+        </header>
+        <div class="modal-body" id="alert-modal-body">
+            <!-- Content populated by JavaScript -->
+        </div>
+        <footer class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal>Close</button>
+            <button type="button" class="btn btn-primary" id="export-alert-btn">Export</button>
+        </footer>
+    </div>
+</div>
+
+<!-- Export options modal -->
+<div class="modal" id="export-modal" role="dialog" aria-labelledby="export-modal-title" aria-modal="true" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <div class="modal-content modal-content-sm">
+        <header class="modal-header">
+            <h2 id="export-modal-title" class="modal-title">Export Alerts</h2>
+            <button type="button" class="modal-close" data-close-modal aria-label="Close modal">×</button>
+        </header>
+        <div class="modal-body">
+            <form id="export-form">
+                <div class="form-group">
+                    <label for="export-format" class="form-label">Export Format</label>
+                    <select id="export-format" class="form-select" required>
+                        <option value="csv">CSV</option>
+                        <option value="json">JSON</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Export Scope</label>
+                    <div class="radio-group">
+                        <label class="radio-wrapper">
+                            <input type="radio" name="export-scope" value="current" checked>
+                            <span class="radio-custom"></span>
+                            <span>Current page</span>
+                        </label>
+                        <label class="radio-wrapper">
+                            <input type="radio" name="export-scope" value="filtered">
+                            <span class="radio-custom"></span>
+                            <span>All filtered results</span>
+                        </label>
+                        <label class="radio-wrapper">
+                            <input type="radio" name="export-scope" value="all">
+                            <span class="radio-custom"></span>
+                            <span>All alerts</span>
+                        </label>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <footer class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+            <button type="button" class="btn btn-primary" id="do-export-btn">Export</button>
+        </footer>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/alerts.js') }}"></script>
+{% endblock %}

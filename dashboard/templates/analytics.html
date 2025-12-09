@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+
+{% block title %}Analytics - NIDS{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Page header -->
+    <header class="page-header">
+        <div class="page-header-content">
+            <h1 class="page-title">Security Analytics</h1>
+            <p class="page-subtitle">In-depth analysis of network security events</p>
+        </div>
+        
+        <div class="page-header-actions">
+            <!-- Time range selector -->
+            <div class="time-range-selector">
+                <label for="analytics-time-range" class="visually-hidden">Select time range</label>
+                <select id="analytics-time-range" class="form-select">
+                    <option value="1">Last 1 hour</option>
+                    <option value="6">Last 6 hours</option>
+                    <option value="24" selected>Last 24 hours</option>
+                    <option value="168">Last 7 days</option>
+                    <option value="720">Last 30 days</option>
+                </select>
+            </div>
+            
+            <!-- Refresh button -->
+            <button type="button" class="btn btn-primary" id="refresh-analytics-btn">
+                <span class="btn-icon" aria-hidden="true">🔄</span>
+                Refresh
+            </button>
+        </div>
+    </header>
+    
+    <!-- Key metrics -->
+    <section class="metrics-section" aria-labelledby="metrics-heading">
+        <h2 id="metrics-heading" class="section-title">Key Metrics</h2>
+        <div class="metrics-grid">
+            <article class="metric-card">
+                <div class="metric-header">
+                    <span class="metric-icon" aria-hidden="true">📊</span>
+                    <h3 class="metric-title">Total Events</h3>
+                </div>
+                <p class="metric-value" id="total-events">-</p>
+                <div class="metric-footer">
+                    <span class="metric-trend" id="total-events-trend"></span>
+                    <span class="metric-period">vs previous period</span>
+                </div>
+            </article>
+            
+            <article class="metric-card metric-card-danger">
+                <div class="metric-header">
+                    <span class="metric-icon" aria-hidden="true">🚨</span>
+                    <h3 class="metric-title">Threats Detected</h3>
+                </div>
+                <p class="metric-value" id="threats-detected">-</p>
+                <div class="metric-footer">
+                    <span class="metric-trend" id="threats-trend"></span>
+                    <span class="metric-period">vs previous period</span>
+                </div>
+            </article>
+            
+            <article class="metric-card metric-card-warning">
+                <div class="metric-header">
+                    <span class="metric-icon" aria-hidden="true">⚡</span>
+                    <h3 class="metric-title">Avg. Detection Time</h3>
+                </div>
+                <p class="metric-value" id="avg-detection-time">-</p>
+                <div class="metric-footer">
+                    <span class="metric-label">milliseconds</span>
+                </div>
+            </article>
+            
+            <article class="metric-card metric-card-success">
+                <div class="metric-header">
+                    <span class="metric-icon" aria-hidden="true">✅</span>
+                    <h3 class="metric-title">Detection Rate</h3>
+                </div>
+                <p class="metric-value" id="detection-rate">-</p>
+                <div class="metric-footer">
+                    <span class="metric-label">accuracy</span>
+                </div>
+            </article>
+        </div>
+    </section>
+    
+    <!-- Charts grid -->
+    <section class="analytics-charts-section" aria-labelledby="charts-heading">
+        <h2 id="charts-heading" class="section-title">Visual Analytics</h2>
+        
+        <div class="analytics-charts-grid">
+            <!-- Threat activity over time -->
+            <div class="chart-card chart-card-full">
+                <div class="chart-card-header">
+                    <h3 class="chart-title">Threat Activity Over Time</h3>
+                    <div class="chart-actions">
+                        <div class="chart-toggle-group" role="group" aria-label="Chart type toggle">
+                            <button type="button" class="chart-toggle active" data-chart-type="line" aria-pressed="true">Line</button>
+                            <button type="button" class="chart-toggle" data-chart-type="bar" aria-pressed="false">Bar</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="chart-container chart-container-tall">
+                    <canvas id="threat-activity-chart" role="img" aria-label="Chart showing threat activity over time"></canvas>
+                </div>
+            </div>
+            
+            <!-- Attack type distribution -->
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <h3 class="chart-title">Attack Type Distribution</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="attack-distribution-chart" role="img" aria-label="Pie chart showing attack type distribution"></canvas>
+                </div>
+            </div>
+            
+            <!-- Severity trends -->
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <h3 class="chart-title">Severity Trends</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="severity-trends-chart" role="img" aria-label="Stacked bar chart showing severity trends"></canvas>
+                </div>
+            </div>
+            
+            <!-- Top attack sources -->
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <h3 class="chart-title">Detection Confidence</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="confidence-chart" role="img" aria-label="Histogram showing detection confidence distribution"></canvas>
+                </div>
+            </div>
+            
+            <!-- Hourly heatmap -->
+            <div class="chart-card">
+                <div class="chart-card-header">
+                    <h3 class="chart-title">Attack Frequency by Hour</h3>
+                </div>
+                <div class="chart-container">
+                    <canvas id="hourly-heatmap-chart" role="img" aria-label="Bar chart showing attack frequency by hour"></canvas>
+                </div>
+            </div>
+        </div>
+    </section>
+    
+    <!-- Top attack types table -->
+    <section class="top-attacks-section" aria-labelledby="top-attacks-heading">
+        <div class="section-header">
+            <h2 id="top-attacks-heading" class="section-title">Top Attack Types</h2>
+        </div>
+        
+        <div class="table-container">
+            <table class="data-table" id="top-attacks-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Rank</th>
+                        <th scope="col">Attack Type</th>
+                        <th scope="col">Count</th>
+                        <th scope="col">Percentage</th>
+                        <th scope="col">Trend</th>
+                        <th scope="col">Average Confidence</th>
+                    </tr>
+                </thead>
+                <tbody id="top-attacks-body">
+                    <tr>
+                        <td colspan="6" class="table-empty">
+                            <div class="empty-state">
+                                <span class="empty-icon" aria-hidden="true">📊</span>
+                                <p>Loading analytics data...</p>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+    
+    <!-- Session statistics -->
+    <section class="sessions-section" aria-labelledby="sessions-heading">
+        <div class="section-header">
+            <h2 id="sessions-heading" class="section-title">Session Statistics</h2>
+        </div>
+        
+        <div class="sessions-grid" id="sessions-grid">
+            <!-- Session cards populated by JavaScript -->
+            <div class="empty-state">
+                <span class="empty-icon" aria-hidden="true">📁</span>
+                <p>Loading session data...</p>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/analytics.js') }}"></script>
+{% endblock %}

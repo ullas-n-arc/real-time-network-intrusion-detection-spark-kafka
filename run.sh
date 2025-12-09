@@ -19,7 +19,7 @@ NC='\033[0m' # No Color
 DATA_SOURCE="${DATA_SOURCE:-unsw2}"
 BATCH_SIZE="${BATCH_SIZE:-50}"
 DELAY="${DELAY:-1}"
-OUTPUT_MODE="${OUTPUT_MODE:-all}"
+OUTPUT_MODE="${OUTPUT_MODE:-mongodb}"
 DASHBOARD_PORT="${DASHBOARD_PORT:-5000}"
 
 # Script directory
@@ -30,8 +30,8 @@ cd "$SCRIPT_DIR"
 print_banner() {
     echo ""
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}🛡️  Real-Time Network Intrusion Detection System${NC}             ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     ${MAGENTA}Spark + Kafka + MongoDB + ML Pipeline${NC}                    ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}🛡️  Real-Time Network Intrusion Detection System${NC}               ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}     ${MAGENTA}Spark + Kafka + MongoDB + ML Pipeline${NC}                      ${CYAN}║${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -125,24 +125,45 @@ start_docker_services() {
     
     docker-compose up -d
     
-    echo -e "${YELLOW}  ⏳ Waiting for services to be healthy (30s)...${NC}"
+    echo -e "${YELLOW}  ⏳ Waiting for services to be healthy...${NC}"
     
-    # Wait for Kafka
-    local retries=30
-    while [ $retries -gt 0 ]; do
-        if docker exec nids-kafka kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
+    # Wait for MongoDB
+    echo -e "${YELLOW}  ⏳ Waiting for MongoDB...${NC}"
+    local mongo_retries=30
+    while [ $mongo_retries -gt 0 ]; do
+        if docker exec nids-mongodb mongosh --quiet --eval "db.adminCommand('ping').ok" nids_db &>/dev/null; then
+            echo -e "${GREEN}  ✓ MongoDB is ready${NC}"
             break
         fi
         sleep 1
-        retries=$((retries - 1))
+        mongo_retries=$((mongo_retries - 1))
     done
     
-    if [ $retries -eq 0 ]; then
-        echo -e "${RED}  ✗ Kafka failed to start${NC}"
+    if [ $mongo_retries -eq 0 ]; then
+        echo -e "${RED}  ✗ MongoDB failed to start${NC}"
+        echo -e "${YELLOW}  Check logs: docker logs nids-mongodb${NC}"
         exit 1
     fi
     
-    echo -e "${GREEN}  ✓ Docker services running${NC}"
+    # Wait for Kafka
+    echo -e "${YELLOW}  ⏳ Waiting for Kafka...${NC}"
+    local kafka_retries=30
+    while [ $kafka_retries -gt 0 ]; do
+        if docker exec nids-kafka kafka-topics --bootstrap-server localhost:9092 --list &>/dev/null; then
+            echo -e "${GREEN}  ✓ Kafka is ready${NC}"
+            break
+        fi
+        sleep 1
+        kafka_retries=$((kafka_retries - 1))
+    done
+    
+    if [ $kafka_retries -eq 0 ]; then
+        echo -e "${RED}  ✗ Kafka failed to start${NC}"
+        echo -e "${YELLOW}  Check logs: docker logs nids-kafka${NC}"
+        exit 1
+    fi
+    
+    echo -e "${GREEN}  ✓ All Docker services running and healthy${NC}"
 }
 
 create_kafka_topics() {

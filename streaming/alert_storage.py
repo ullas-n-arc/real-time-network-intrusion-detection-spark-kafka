@@ -105,39 +105,66 @@ class AlertStorage:
         """Set the session ID for this storage instance."""
         self._session_id = value
         
-    def connect(self) -> bool:
-        """Establish connection to MongoDB."""
-        try:
-            connection_string = f"mongodb://{MONGODB_CONFIG['host']}:{MONGODB_CONFIG['port']}"
+    def connect(self, max_retries: int = 5, retry_delay: int = 2) -> bool:
+        """Establish connection to MongoDB with retry logic.
+        
+        Args:
+            max_retries: Maximum number of connection attempts
+            retry_delay: Delay in seconds between retries
             
-            if MONGODB_CONFIG.get('username') and MONGODB_CONFIG.get('password'):
-                connection_string = (
-                    f"mongodb://{MONGODB_CONFIG['username']}:{MONGODB_CONFIG['password']}"
-                    f"@{MONGODB_CONFIG['host']}:{MONGODB_CONFIG['port']}"
+        Returns:
+            True if connection successful, False otherwise
+        """
+        import time
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                connection_string = f"mongodb://{MONGODB_CONFIG['host']}:{MONGODB_CONFIG['port']}"
+                
+                if MONGODB_CONFIG.get('username') and MONGODB_CONFIG.get('password'):
+                    connection_string = (
+                        f"mongodb://{MONGODB_CONFIG['username']}:{MONGODB_CONFIG['password']}"
+                        f"@{MONGODB_CONFIG['host']}:{MONGODB_CONFIG['port']}"
+                    )
+                
+                self.client = MongoClient(
+                    connection_string,
+                    serverSelectionTimeoutMS=10000,  # Increased from 5s to 10s
+                    connectTimeoutMS=20000,
+                    socketTimeoutMS=20000,
+                    retryWrites=True,
+                    retryReads=True
                 )
-            
-            self.client = MongoClient(
-                connection_string,
-                serverSelectionTimeoutMS=5000
-            )
-            
-            # Test connection
-            self.client.admin.command('ping')
-            
-            self.db = self.client[MONGODB_CONFIG['database']]
-            self.alerts_collection = self.db[MONGODB_CONFIG['alerts_collection']]
-            self.stats_collection = self.db['alert_statistics']
-            self.sessions_collection = self.db['sessions']
-            
-            # Create indexes for efficient queries
-            self._create_indexes()
-            
-            logger.info(f"✅ Connected to MongoDB at {MONGODB_CONFIG['host']}:{MONGODB_CONFIG['port']}")
-            return True
-            
-        except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-            logger.error(f"❌ Failed to connect to MongoDB: {e}")
-            return False
+                
+                # Test connection
+                self.client.admin.command('ping')
+                
+                self.db = self.client[MONGODB_CONFIG['database']]
+                self.alerts_collection = self.db[MONGODB_CONFIG['alerts_collection']]
+                self.stats_collection = self.db['alert_statistics']
+                self.sessions_collection = self.db['sessions']
+                
+                # Create indexes for efficient queries
+                self._create_indexes()
+                
+                logger.info(f"✅ Connected to MongoDB at {MONGODB_CONFIG['host']}:{MONGODB_CONFIG['port']} (attempt {attempt})")
+                return True
+                
+            except (ConnectionFailure, ServerSelectionTimeoutError) as e:
+                if attempt < max_retries:
+                    logger.warning(f"⚠️  MongoDB connection attempt {attempt}/{max_retries} failed: {e}")
+                    logger.info(f"⏳ Retrying in {retry_delay} seconds...")
+                    time.sleep(retry_delay)
+                else:
+                    logger.error(f"❌ Failed to connect to MongoDB after {max_retries} attempts: {e}")
+                    logger.error(f"   Make sure MongoDB is running: docker ps | grep mongodb")
+                    logger.error(f"   Check MongoDB logs: docker logs nids-mongodb")
+                    return False
+            except Exception as e:
+                logger.error(f"❌ Unexpected error connecting to MongoDB: {e}")
+                return False
+        
+        return False
     
     def _create_indexes(self):
         """Create indexes for efficient querying."""
@@ -166,11 +193,38 @@ class AlertStorage:
         
         logger.info("✅ MongoDB indexes created")
     
+    def is_connected(self) -> bool:
+        """Check if MongoDB connection is still alive.
+        
+        Returns:
+            True if connected, False otherwise
+        """
+        if not self.client:
+            return False
+        try:
+            self.client.admin.command('ping')
+            return True
+        except Exception:
+            return False
+    
+    def reconnect(self) -> bool:
+        """Attempt to reconnect to MongoDB.
+        
+        Returns:
+            True if reconnection successful, False otherwise
+        """
+        logger.info("🔄 Attempting to reconnect to MongoDB...")
+        self.close()
+        return self.connect()
+    
     def close(self):
         """Close MongoDB connection."""
         if self.client:
-            self.client.close()
-            logger.info("MongoDB connection closed")
+            try:
+                self.client.close()
+                logger.info("MongoDB connection closed")
+            except Exception as e:
+                logger.warning(f"Error closing MongoDB connection: {e}")
     
     def insert_alert(self, alert: Dict[str, Any], session_id: Optional[str] = None) -> str:
         """
@@ -183,6 +237,12 @@ class AlertStorage:
         Returns:
             Inserted document ID
         """
+        # Verify connection before insert
+        if not self.is_connected():
+            logger.warning("MongoDB connection lost, attempting reconnect...")
+            if not self.reconnect():
+                raise ConnectionError("Failed to reconnect to MongoDB")
+        
         alert['inserted_at'] = datetime.now()
         # Add session ID to alert
         alert['session_id'] = session_id or self.session_id
@@ -202,6 +262,12 @@ class AlertStorage:
         """
         if not alerts:
             return []
+        
+        # Verify connection before insert
+        if not self.is_connected():
+            logger.warning("MongoDB connection lost, attempting reconnect...")
+            if not self.reconnect():
+                raise ConnectionError("Failed to reconnect to MongoDB")
         
         sid = session_id or self.session_id
         for alert in alerts:

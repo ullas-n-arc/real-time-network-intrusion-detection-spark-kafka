@@ -1,10 +1,14 @@
 apiVersion: 1
 
 datasources:
-  - name: MongoDB
-    type: grafana-mongodb-datasource
+  # Infinity datasource for querying JSON APIs (free alternative to MongoDB datasource)
+  - name: NIDS-API
+    type: yesoreyeram-infinity-datasource
+    uid: infinity-datasource
     access: proxy
-    url: mongodb://admin:admin123@mongodb:27017
-    database: nids_db
     isDefault: true
     editable: true
+    jsonData:
+      # Will connect to the dashboard API for alert data
+      allowedHosts:
+        - http://host.docker.internal:5000
